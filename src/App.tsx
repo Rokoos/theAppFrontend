@@ -123,6 +123,8 @@ const TEXT: Record<
     currencyPln: string;
     showMore: string;
     itemsLeft: string;
+    prevPage: string;
+    nextPage: string;
   }
 > = {
   en: {
@@ -192,6 +194,8 @@ const TEXT: Record<
     currencyPln: "PLN (zł)",
     showMore: "Show more",
     itemsLeft: "left",
+    prevPage: "Previous",
+    nextPage: "Next",
   },
   pl: {
     homeEyebrow: "Menedżer ekwipunku Steam",
@@ -260,6 +264,8 @@ const TEXT: Record<
     currencyPln: "PLN (zł)",
     showMore: "Pokaż więcej",
     itemsLeft: "pozostało",
+    prevPage: "Poprzednia",
+    nextPage: "Następna",
   },
 };
 
@@ -268,6 +274,8 @@ export const App: React.FC = () => {
   const [user, setUser] = useState<SteamUser | null>(null);
   const [games, setGames] = useState<SteamGame[]>([]);
   const [selectedGameForSkins, setSelectedGameForSkins] =
+    useState<SteamGame | null>(null);
+  const [selectedGameForMarket, setSelectedGameForMarket] =
     useState<SteamGame | null>(null);
   const [viewMode, setViewMode] = useState<"2D" | "3D">("2D");
   const [loadingUser, setLoadingUser] = useState(true);
@@ -297,9 +305,10 @@ export const App: React.FC = () => {
   const [alertSubmitting, setAlertSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
+  const [marketTotal, setMarketTotal] = useState(0);
+  const [marketPage, setMarketPage] = useState(1);
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [marketCurrency, setMarketCurrency] = useState<MarketCurrency>("USD");
-  const [marketVisibleCount, setMarketVisibleCount] = useState(100);
 
   const t = TEXT[locale];
 
@@ -450,41 +459,62 @@ export const App: React.FC = () => {
     if (user && dashboardTab === "watchlist") void fetchAlerts();
   }, [user?.steamid, dashboardTab]);
 
-  const fetchMarketPrices = async () => {
-    if (!user || !selectedGameForSkins) return;
+  const MARKET_PAGE_SIZE = 50;
+
+  const fetchMarketPrices = async (page: number) => {
+    if (!user || !selectedGameForMarket) return;
     setLoadingMarket(true);
     try {
-      const resp = await apiClient.get<{ items: MarketItem[] }>(
-        `/api/market/prices?gameId=${selectedGameForSkins.appid}&currency=${marketCurrency}`,
+      const offset = (page - 1) * MARKET_PAGE_SIZE;
+      const resp = await apiClient.get<{ items: MarketItem[]; total: number }>(
+        "/api/market/prices",
+        {
+          params: {
+            gameId: selectedGameForMarket.appid,
+            currency: marketCurrency,
+            limit: MARKET_PAGE_SIZE,
+            offset,
+          },
+        },
       );
-      setMarketItems(resp.data.items || []);
-      setMarketVisibleCount(100);
+      const rawItems = resp.data.items ?? [];
+      const total = Number(resp.data.total) || 0;
+      const items = Array.isArray(rawItems) ? rawItems.slice(0, MARKET_PAGE_SIZE) : [];
+      setMarketItems(items);
+      setMarketTotal(total);
+      setMarketPage(page);
     } catch {
       setMarketItems([]);
+      setMarketTotal(0);
     } finally {
       setLoadingMarket(false);
     }
   };
 
   useEffect(() => {
-    if (user && dashboardTab === "skins" && !selectedGameForSkins) {
-      setSelectedGameForSkins({
+    if (user && dashboardTab === "skins") {
+      const defaultGame = {
         appid: TARGET_GAMES[0].appid,
         name: TARGET_GAMES[0].name,
         playtimeHours: 0,
-      });
+      };
+      if (!selectedGameForSkins) setSelectedGameForSkins(defaultGame);
+      if (!selectedGameForMarket) setSelectedGameForMarket(defaultGame);
     }
   }, [user, dashboardTab]);
 
   useEffect(() => {
-    if (user && selectedGameForSkins && dashboardTab === "skins") {
-      void fetchMarketPrices();
+    if (user && selectedGameForMarket && dashboardTab === "skins") {
+      setMarketPage(1);
+      void fetchMarketPrices(1);
     } else {
       setMarketItems([]);
+      setMarketTotal(0);
+      setMarketPage(1);
     }
   }, [
     user?.steamid,
-    selectedGameForSkins?.appid,
+    selectedGameForMarket?.appid,
     dashboardTab,
     marketCurrency,
   ]);
@@ -637,18 +667,21 @@ export const App: React.FC = () => {
         </section>
       )}
 
-      {user && dashboardTab === "skins" && (
+      {user && dashboardTab === "skins" && selectedGameForMarket && (
         <section className="app-column" style={{ gridColumn: "1 / -1" }}>
+          <p className="status-text" style={{ marginBottom: "0.35rem" }}>
+            {t.marketPrices}
+          </p>
           <div className="game-switcher">
             {TARGET_GAMES.map((g) => {
-              const isSelected = selectedGameForSkins?.appid === g.appid;
+              const isSelected = selectedGameForMarket.appid === g.appid;
               return (
                 <button
                   key={g.appid}
                   type="button"
                   className={`game-switcher-button${isSelected ? " game-switcher-button--active" : ""}`}
                   onClick={() =>
-                    setSelectedGameForSkins(
+                    setSelectedGameForMarket(
                       games.find((gm) => gm.appid === g.appid) || {
                         appid: g.appid,
                         name: g.name,
@@ -666,14 +699,14 @@ export const App: React.FC = () => {
         </section>
       )}
 
-      {selectedGameForSkins && (
+      {selectedGameForMarket && (
         <section className="app-column" style={{ gridColumn: "1 / -1" }}>
           <article className="card" style={{ marginBottom: "1rem" }}>
             <div className="card-inner">
               <h2 className="card-title" style={{ marginBottom: "0.5rem" }}>
                 {t.marketPrices}{" "}
                 <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
-                  ({selectedGameForSkins.name})
+                  ({selectedGameForMarket.name})
                 </span>
               </h2>
               <div className="card-body">
@@ -707,137 +740,172 @@ export const App: React.FC = () => {
                   <p className="status-text">{t.marketEmpty}</p>
                 ) : (
                   <>
-                    <div
-                      className="skin-grid-2d"
-                      style={{
-                        gridTemplateColumns:
-                          "repeat(auto-fill, minmax(140px, 1fr))",
-                      }}
-                    >
-                      {marketItems
-                        .slice(0, marketVisibleCount)
-                        .map((item, idx) => (
-                          <div
-                            key={`${item.marketHashName}-${idx}`}
-                            style={{ position: "relative" }}
-                          >
-                            <div
-                              className="skin-card-2d"
-                              style={{
-                                padding: 0,
-                                overflow: "hidden",
-                                display: "flex",
-                                flexDirection: "column",
-                                minHeight: 0,
-                              }}
-                            >
-                              <div
-                                className="skin-card-2d-image-wrap"
-                                style={{
-                                  aspectRatio: "1",
-                                  background: "var(--bg-elevated)",
-                                }}
-                              >
-                                <img
-                                  src="/assets/test-skin.png"
-                                  alt=""
-                                  className="skin-card-2d-image"
-                                  style={{
-                                    width: "100%",
-                                    height: "100%",
-                                    objectFit: "cover",
-                                  }}
-                                />
+                    <div className="skin-grid-2d">
+                      {marketItems.map((item, idx) => (
+                        <div
+                          key={`${item.marketHashName}-${idx}`}
+                          style={{ position: "relative" }}
+                        >
+                          <div className="skin-card-2d">
+                            <div className="skin-card-2d-image-wrap">
+                              <img
+                                src="/assets/test-skin.png"
+                                alt=""
+                                className="skin-card-2d-image"
+                              />
+                            </div>
+                            <div className="skin-card-2d-footer">
+                              <div className="skin-card-2d-name">
+                                {item.marketHashName}
                               </div>
-                              <div
-                                style={{ padding: "0.4rem 0.5rem", flex: 1 }}
-                              >
-                                <div
-                                  className="skin-card-2d-name"
-                                  style={{
-                                    fontSize: "0.7rem",
-                                    lineHeight: 1.2,
-                                  }}
-                                >
-                                  {item.marketHashName}
-                                </div>
-                                <div
-                                  className="status-text"
-                                  style={{
-                                    marginTop: "0.2rem",
-                                    fontSize: "0.75rem",
-                                  }}
-                                >
-                                  {item.suggestedPrice != null
-                                    ? formatPrice(
-                                        item.suggestedPrice,
-                                        marketCurrency,
-                                      )
-                                    : item.minPrice != null
-                                      ? `${formatPrice(item.minPrice, marketCurrency)} – ${item.maxPrice != null ? formatPrice(item.maxPrice, marketCurrency) : "?"}`
-                                      : "—"}
-                                </div>
+                              <div className="status-text" style={{ marginTop: "0.2rem", fontSize: "0.75rem" }}>
+                                {item.suggestedPrice != null
+                                  ? formatPrice(item.suggestedPrice, marketCurrency)
+                                  : item.minPrice != null
+                                    ? `${formatPrice(item.minPrice, marketCurrency)} – ${item.maxPrice != null ? formatPrice(item.maxPrice, marketCurrency) : "?"}`
+                                    : "—"}
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              aria-label={t.addAlert}
-                              onClick={openAlertModal(
-                                {
-                                  name: item.marketHashName,
-                                  description: "",
-                                  iconUrl: "/assets/test-skin.png",
-                                },
-                                selectedGameForSkins.appid,
-                              )}
-                              style={{
-                                position: "absolute",
-                                top: "0.35rem",
-                                right: "0.35rem",
-                                width: "28px",
-                                height: "28px",
-                                borderRadius: "50%",
-                                border: "1px solid var(--border-subtle)",
-                                background: "rgba(15,23,42,0.9)",
-                                color: "var(--text-primary)",
-                                cursor: "pointer",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: "0.9rem",
-                              }}
-                            >
-                              🔔
-                            </button>
                           </div>
-                        ))}
+                          <button
+                            type="button"
+                            aria-label={t.addAlert}
+                            onClick={openAlertModal(
+                              {
+                                name: item.marketHashName,
+                                description: "",
+                                iconUrl: "/assets/test-skin.png",
+                              },
+                              selectedGameForMarket.appid,
+                            )}
+                            style={{
+                              position: "absolute",
+                              top: "0.35rem",
+                              right: "0.35rem",
+                              width: "28px",
+                              height: "28px",
+                              borderRadius: "50%",
+                              border: "1px solid var(--border-subtle)",
+                              background: "rgba(15,23,42,0.9)",
+                              color: "var(--text-primary)",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "0.9rem",
+                            }}
+                          >
+                            🔔
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    {marketVisibleCount < marketItems.length && (
-                      <div
-                        style={{ marginTop: "0.75rem", textAlign: "center" }}
-                      >
-                        <button
-                          type="button"
-                          className="button-secondary"
-                          onClick={() =>
-                            setMarketVisibleCount((n) =>
-                              Math.min(n + 100, marketItems.length),
-                            )
-                          }
+                    {marketTotal > 0 && (() => {
+                      const totalPages = Math.max(1, Math.ceil(marketTotal / MARKET_PAGE_SIZE));
+                      const showPages = (() => {
+                        if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+                        const around: number[] = [];
+                        const add = (p: number) => { if (p >= 1 && p <= totalPages && !around.includes(p)) around.push(p); };
+                        add(1);
+                        add(marketPage - 1);
+                        add(marketPage);
+                        add(marketPage + 1);
+                        add(totalPages);
+                        around.sort((a, b) => a - b);
+                        const out: (number | "…")[] = [];
+                        for (let i = 0; i < around.length; i++) {
+                          if (i > 0 && around[i]! > around[i - 1]! + 1) out.push("…");
+                          out.push(around[i]!);
+                        }
+                        return out;
+                      })();
+                      return (
+                        <div
+                          style={{
+                            marginTop: "0.75rem",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "0.35rem",
+                            flexWrap: "wrap",
+                          }}
                         >
-                          {t.showMore} (
-                          {marketItems.length - marketVisibleCount}{" "}
-                          {t.itemsLeft})
-                        </button>
-                      </div>
-                    )}
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            disabled={loadingMarket || marketPage <= 1}
+                            onClick={() => {
+                              const p = marketPage - 1;
+                              if (p >= 1) void fetchMarketPrices(p);
+                            }}
+                          >
+                            {t.prevPage}
+                          </button>
+                          {showPages.map((p, i) =>
+                            p === "…" ? (
+                              <span key={`ellipsis-${i}`} className="status-text" style={{ padding: "0 0.25rem" }}>…</span>
+                            ) : (
+                              <button
+                                key={p}
+                                type="button"
+                                className={marketPage === p ? "button-primary" : "button-secondary"}
+                                disabled={loadingMarket}
+                                onClick={() => void fetchMarketPrices(p)}
+                              >
+                                {p}
+                              </button>
+                            ),
+                          )}
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            disabled={loadingMarket || marketPage >= totalPages}
+                            onClick={() => {
+                              const p = marketPage + 1;
+                              if (p <= totalPages) void fetchMarketPrices(p);
+                            }}
+                          >
+                            {t.nextPage}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
               </div>
             </div>
           </article>
 
-          {inventories[selectedGameForSkins.appid] && (
+          {selectedGameForSkins && (
+            <>
+              <p className="status-text" style={{ marginBottom: "0.35rem" }}>
+                {t.yourInventory}
+              </p>
+              <div className="game-switcher" style={{ marginBottom: "1rem" }}>
+                {TARGET_GAMES.map((g) => {
+                  const isSelected = selectedGameForSkins.appid === g.appid;
+                  return (
+                    <button
+                      key={g.appid}
+                      type="button"
+                      className={`game-switcher-button${isSelected ? " game-switcher-button--active" : ""}`}
+                      onClick={() =>
+                        setSelectedGameForSkins(
+                          games.find((gm) => gm.appid === g.appid) || {
+                            appid: g.appid,
+                            name: g.name,
+                            playtimeHours: 0,
+                          },
+                        )
+                      }
+                    >
+                      <span className="game-switcher-code">{g.code}</span>
+                      <span className="game-switcher-name">{g.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {inventories[selectedGameForSkins.appid] && (
             <article className="card">
               <div className="card-inner">
                 <div className="card-header">
@@ -999,6 +1067,8 @@ export const App: React.FC = () => {
                 </div>
               </div>
             </article>
+              )}
+            </>
           )}
         </section>
       )}
