@@ -42,9 +42,9 @@ const TEXT: Record<
     homeCardTitle: string;
     homeCardKicker: string;
     // homeDescription: string;
-    homeBullet1: string;
-    homeBullet2: string;
-    homeBullet3: string;
+    // homeBullet1: string;
+    // homeBullet2: string;
+    // homeBullet3: string;
     loginChecking: string;
     loginWithSteam: string;
     profileWelcome: string;
@@ -83,9 +83,9 @@ const TEXT: Record<
     homeCardKicker: "One place to understand and curate your library.",
     // homeDescription:
     //   "Connect your Steam account to explore your games, track playtime, and experiment with how you might organise skins, items, and loadouts — all from a fast, focused dashboard.",
-    homeBullet1: "See all owned games",
-    homeBullet2: "Sort by playtime",
-    homeBullet3: "Foundation for inventory tools",
+    // homeBullet1: "See all owned games",
+    // homeBullet2: "Sort by playtime",
+    // homeBullet3: "Foundation for inventory tools",
     loginChecking: "Checking session…",
     loginWithSteam: "Login with Steam",
     profileWelcome:
@@ -130,9 +130,9 @@ const TEXT: Record<
     homeCardKicker: "Jedno miejsce do ogarnięcia całej biblioteki.",
     // homeDescription:
     //   "Połącz konto Steam, aby przeglądać gry, śledzić czas gry i planować, jak chcesz zarządzać skinami, przedmiotami i loadoutami — w lekkim, przejrzystym interfejsie.",
-    homeBullet1: "Wszystkie posiadane gry",
-    homeBullet2: "Sortowanie po czasie gry",
-    homeBullet3: "Fundament pod narzędzia do ekwipunku",
+    // homeBullet1: "Wszystkie posiadane gry",
+    // homeBullet2: "Sortowanie po czasie gry",
+    // homeBullet3: "Fundament pod narzędzia do ekwipunku",
     loginChecking: "Sprawdzanie sesji…",
     loginWithSteam: "Zaloguj przez Steam",
     profileWelcome:
@@ -268,11 +268,11 @@ export const App: React.FC = () => {
             </div>
             <div className="card-body">
               {/* <p>{t.homeDescription}</p> */}
-              <div className="pill-row-small">
+              {/* <div className="pill-row-small">
                 <span className="pill-small">{t.homeBullet1}</span>
                 <span className="pill-small">{t.homeBullet2}</span>
                 <span className="pill-small">{t.homeBullet3}</span>
-              </div>
+              </div> */}
               <div className="button-row">
                 {loadingUser ? (
                   <span className="button-primary" style={{ opacity: 0.8 }}>
