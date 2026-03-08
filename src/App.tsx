@@ -72,6 +72,7 @@ const TEXT: Record<
     view2D: string;
     view3D: string;
     debugMockDescription: (appid: number, index: number) => string;
+    firefoxLoginHint: string;
   }
 > = {
   en: {
@@ -120,6 +121,8 @@ const TEXT: Record<
     view3D: "3D",
     debugMockDescription: (appid, index) =>
       `Factory New\nAppID: ${appid}\nDebug mock skin #${index} (no live Steam data).`,
+    firefoxLoginHint:
+      "Login succeeded but Firefox blocked the session cookie. Click the shield icon in the address bar → turn off Enhanced Tracking Protection for this site, then try logging in again. Or use Chrome.",
   },
   pl: {
     homeEyebrow: "Menedżer ekwipunku Steam",
@@ -167,6 +170,8 @@ const TEXT: Record<
     view3D: "3D",
     debugMockDescription: (appid, index) =>
       `Stan: Fabrycznie nowy\nAppID: ${appid}\nSkin testowy #${index} (brak danych z Steam).`,
+    firefoxLoginHint:
+      "Logowanie się powiodło, ale Firefox zablokował ciasteczko sesji. Kliknij tarczę w pasku adresu → wyłącz Ulepszoną ochronę przed śledzeniem dla tej witryny i zaloguj się ponownie. Możesz też użyć Chrome.",
   },
 };
 
@@ -185,8 +190,11 @@ export const App: React.FC = () => {
   );
   const [ownsAnyTarget, setOwnsAnyTarget] = useState<boolean | null>(null);
   const [selectedSkin, setSelectedSkin] = useState<SkinCard | null>(null);
+  const [showFirefoxHint, setShowFirefoxHint] = useState(false);
 
   const t = TEXT[locale];
+
+  const isFirefox = () => /Firefox|FxiOS/i.test(navigator.userAgent);
 
   const fetchMe = async () => {
     try {
@@ -249,6 +257,20 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (loadingUser || user) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("login") === "ok" && isFirefox()) {
+      setShowFirefoxHint(true);
+      params.delete("login");
+      const clean =
+        window.location.pathname +
+        (params.toString() ? "?" + params.toString() : "") +
+        window.location.hash;
+      window.history.replaceState(null, "", clean);
+    }
+  }, [loadingUser, user]);
+
+  useEffect(() => {
     if (user) {
       void fetchGames();
       void fetchInventories();
@@ -291,6 +313,20 @@ export const App: React.FC = () => {
               </div>
               {error && (
                 <div className="status-text status-text--error">{error}</div>
+              )}
+              {showFirefoxHint && (
+                <div
+                  className="status-text"
+                  style={{
+                    marginTop: "0.75rem",
+                    padding: "0.6rem 0.75rem",
+                    background: "rgba(251, 191, 36, 0.12)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid rgba(251, 191, 36, 0.35)",
+                  }}
+                >
+                  {t.firefoxLoginHint}
+                </div>
               )}
             </div>
           </div>
