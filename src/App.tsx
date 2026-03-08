@@ -33,6 +33,23 @@ type GameInventory = {
   items: SkinCard[];
 };
 
+type AlertItem = {
+  _id: string;
+  marketHashName: string;
+  gameId: number;
+  targetPrice: number;
+  condition: "below" | "above";
+  isActive: boolean;
+};
+
+type MarketItem = {
+  marketHashName: string;
+  suggestedPrice?: number;
+  minPrice?: number | null;
+  maxPrice?: number | null;
+  source?: string;
+};
+
 const TEXT: Record<
   Locale,
   {
@@ -73,6 +90,18 @@ const TEXT: Record<
     view3D: string;
     debugMockDescription: (appid: number, index: number) => string;
     firefoxLoginHint: string;
+    tabSkins: string;
+    tabWatchlist: string;
+    targetPrice: string;
+    conditionBelow: string;
+    conditionAbove: string;
+    addAlert: string;
+    alertLimitReached: string;
+    watchlistEmpty: string;
+    marketPrices: string;
+    marketLoading: string;
+    marketEmpty: string;
+    yourInventory: string;
   }
 > = {
   en: {
@@ -123,6 +152,18 @@ const TEXT: Record<
       `Factory New\nAppID: ${appid}\nDebug mock skin #${index} (no live Steam data).`,
     firefoxLoginHint:
       "Login succeeded but Firefox blocked the session cookie. Click the shield icon in the address bar → turn off Enhanced Tracking Protection for this site, then try logging in again. Or use Chrome.",
+    tabSkins: "Skins",
+    tabWatchlist: "Watchlist",
+    targetPrice: "Target price",
+    conditionBelow: "Below",
+    conditionAbove: "Above",
+    addAlert: "Add alert",
+    alertLimitReached: "Limit reached. Upgrade to Pro.",
+    watchlistEmpty: "No alerts yet. Add one from the Skins tab.",
+    marketPrices: "Market prices (SkinPort)",
+    marketLoading: "Loading market…",
+    marketEmpty: "No market data for this game.",
+    yourInventory: "Your inventory",
   },
   pl: {
     homeEyebrow: "Menedżer ekwipunku Steam",
@@ -172,6 +213,18 @@ const TEXT: Record<
       `Stan: Fabrycznie nowy\nAppID: ${appid}\nSkin testowy #${index} (brak danych z Steam).`,
     firefoxLoginHint:
       "Logowanie się powiodło, ale Firefox zablokował ciasteczko sesji. Kliknij tarczę w pasku adresu → wyłącz Ulepszoną ochronę przed śledzeniem dla tej witryny i zaloguj się ponownie. Możesz też użyć Chrome.",
+    tabSkins: "Skiny",
+    tabWatchlist: "Obserwowane",
+    targetPrice: "Cena docelowa",
+    conditionBelow: "Poniżej",
+    conditionAbove: "Powyżej",
+    addAlert: "Dodaj alert",
+    alertLimitReached: "Limit osiągnięty. Przejdź na Pro.",
+    watchlistEmpty: "Brak alertów. Dodaj z zakładki Skiny.",
+    marketPrices: "Ceny rynkowe (SkinPort)",
+    marketLoading: "Ładowanie rynku…",
+    marketEmpty: "Brak danych rynkowych dla tej gry.",
+    yourInventory: "Twój ekwipunek",
   },
 };
 
@@ -191,6 +244,25 @@ export const App: React.FC = () => {
   const [ownsAnyTarget, setOwnsAnyTarget] = useState<boolean | null>(null);
   const [selectedSkin, setSelectedSkin] = useState<SkinCard | null>(null);
   const [showFirefoxHint, setShowFirefoxHint] = useState(false);
+  const [dashboardTab, setDashboardTab] = useState<"skins" | "watchlist">(
+    "skins",
+  );
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [alertsTier, setAlertsTier] = useState<"free" | "pro">("free");
+  const [alertsLimit, setAlertsLimit] = useState(3);
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
+  const [alertModal, setAlertModal] = useState<{
+    skin: SkinCard;
+    gameId: number;
+  } | null>(null);
+  const [alertTargetPrice, setAlertTargetPrice] = useState("");
+  const [alertCondition, setAlertCondition] = useState<"below" | "above">(
+    "below",
+  );
+  const [alertSubmitting, setAlertSubmitting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
+  const [loadingMarket, setLoadingMarket] = useState(false);
 
   const t = TEXT[locale];
 
@@ -249,6 +321,65 @@ export const App: React.FC = () => {
     } finally {
       setUser(null);
       setGames([]);
+      setAlerts([]);
+    }
+  };
+
+  const fetchAlerts = async () => {
+    if (!user) return;
+    try {
+      setLoadingAlerts(true);
+      const resp = await apiClient.get<{
+        alerts: AlertItem[];
+        tier: string;
+        alertLimit: number;
+      }>("/api/alerts");
+      setAlerts(resp.data.alerts || []);
+      setAlertsTier((resp.data.tier as "free" | "pro") || "free");
+      setAlertsLimit(resp.data.alertLimit ?? 3);
+    } catch {
+      setAlerts([]);
+    } finally {
+      setLoadingAlerts(false);
+    }
+  };
+
+  const showToast = (message: string) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const openAlertModal = (skin: SkinCard, gameId: number) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setAlertModal({ skin, gameId });
+    setAlertTargetPrice("");
+    setAlertCondition("below");
+  };
+
+  const submitAlert = async () => {
+    if (!alertModal || !alertTargetPrice.trim()) return;
+    const targetPrice = parseFloat(alertTargetPrice.replace(",", "."));
+    if (Number.isNaN(targetPrice) || targetPrice <= 0) return;
+    setAlertSubmitting(true);
+    try {
+      await apiClient.post("/api/alerts", {
+        marketHashName: alertModal.skin.name,
+        gameId: alertModal.gameId,
+        targetPrice,
+        condition: alertCondition,
+      });
+      setAlertModal(null);
+      void fetchAlerts();
+    } catch (e: any) {
+      const err = e?.response?.data;
+      if (e?.response?.status === 403 && err?.code === "ALERT_LIMIT_REACHED") {
+        showToast(t.alertLimitReached);
+        setAlertModal(null);
+      } else {
+        showToast(err?.error || "Failed to add alert");
+      }
+    } finally {
+      setAlertSubmitting(false);
     }
   };
 
@@ -276,6 +407,43 @@ export const App: React.FC = () => {
       void fetchInventories();
     }
   }, [user?.steamid]);
+
+  useEffect(() => {
+    if (user && dashboardTab === "watchlist") void fetchAlerts();
+  }, [user?.steamid, dashboardTab]);
+
+  const fetchMarketPrices = async () => {
+    if (!user || !selectedGameForSkins) return;
+    setLoadingMarket(true);
+    try {
+      const resp = await apiClient.get<{ items: MarketItem[] }>(
+        `/api/market/prices?gameId=${selectedGameForSkins.appid}&currency=USD`,
+      );
+      setMarketItems(resp.data.items || []);
+    } catch {
+      setMarketItems([]);
+    } finally {
+      setLoadingMarket(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user && dashboardTab === "skins" && !selectedGameForSkins) {
+      setSelectedGameForSkins({
+        appid: TARGET_GAMES[0].appid,
+        name: TARGET_GAMES[0].name,
+        playtimeHours: 0,
+      });
+    }
+  }, [user, dashboardTab]);
+
+  useEffect(() => {
+    if (user && selectedGameForSkins && dashboardTab === "skins") {
+      void fetchMarketPrices();
+    } else {
+      setMarketItems([]);
+    }
+  }, [user?.steamid, selectedGameForSkins?.appid, dashboardTab]);
 
   const renderLoggedOut = () => (
     <main className="app-grid">
@@ -362,18 +530,79 @@ export const App: React.FC = () => {
 
       {user && (
         <section className="app-column" style={{ gridColumn: "1 / -1" }}>
+          <div
+            className="view-switcher"
+            style={{ marginBottom: "0.5rem", justifyContent: "flex-start" }}
+          >
+            <button
+              type="button"
+              className={`view-switcher-toggle${dashboardTab === "skins" ? " view-switcher-toggle--active" : ""}`}
+              onClick={() => setDashboardTab("skins")}
+            >
+              <span className="view-switcher-label">{t.tabSkins}</span>
+            </button>
+            <button
+              type="button"
+              className={`view-switcher-toggle${dashboardTab === "watchlist" ? " view-switcher-toggle--active" : ""}`}
+              onClick={() => setDashboardTab("watchlist")}
+            >
+              <span className="view-switcher-label">{t.tabWatchlist}</span>
+            </button>
+          </div>
+          {dashboardTab === "watchlist" ? (
+            <article className="card">
+              <div className="card-inner">
+                <h2 className="card-title">{t.tabWatchlist}</h2>
+                <div className="card-body">
+                  {loadingAlerts ? (
+                    <p className="status-text">{t.loginChecking}</p>
+                  ) : alerts.length === 0 ? (
+                    <p className="status-text">{t.watchlistEmpty}</p>
+                  ) : (
+                    <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                      {alerts.map((a) => (
+                        <li
+                          key={a._id}
+                          style={{
+                            padding: "0.5rem 0",
+                            borderBottom: "1px solid var(--border-subtle)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                          }}
+                        >
+                          <span style={{ fontWeight: 500 }}>{a.marketHashName}</span>
+                          <span className="status-text">
+                            {a.condition === "below"
+                              ? "≤"
+                              : "≥"}{" "}
+                            {a.targetPrice} USD
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="status-text" style={{ marginTop: "0.5rem" }}>
+                    {alerts.length} / {alertsLimit} ({alertsTier})
+                  </p>
+                </div>
+              </div>
+            </article>
+          ) : null}
+        </section>
+      )}
+
+      {user && dashboardTab === "skins" && (
+        <section className="app-column" style={{ gridColumn: "1 / -1" }}>
           <div className="game-switcher">
             {TARGET_GAMES.map((g) => {
-              const inv = inventories[g.appid];
-              const hasSkins = inv && inv.items && inv.items.length > 0;
               const isSelected = selectedGameForSkins?.appid === g.appid;
-              const disabled = !hasSkins && ownsAnyTarget !== null;
               return (
                 <button
                   key={g.appid}
                   type="button"
                   className={`game-switcher-button${isSelected ? " game-switcher-button--active" : ""}`}
-                  disabled={disabled}
                   onClick={() =>
                     setSelectedGameForSkins(
                       games.find((gm) => gm.appid === g.appid) || {
@@ -393,8 +622,91 @@ export const App: React.FC = () => {
         </section>
       )}
 
-      {selectedGameForSkins && inventories[selectedGameForSkins.appid] && (
+      {selectedGameForSkins && (
         <section className="app-column" style={{ gridColumn: "1 / -1" }}>
+          <article className="card" style={{ marginBottom: "1rem" }}>
+            <div className="card-inner">
+              <h2 className="card-title" style={{ marginBottom: "0.5rem" }}>
+                {t.marketPrices}{" "}
+                <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                  ({selectedGameForSkins.name})
+                </span>
+              </h2>
+              <div className="card-body">
+                {loadingMarket ? (
+                  <p className="status-text">{t.marketLoading}</p>
+                ) : marketItems.length === 0 ? (
+                  <p className="status-text">{t.marketEmpty}</p>
+                ) : (
+                  <div
+                    className="skin-grid-2d"
+                    style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
+                  >
+                    {marketItems.slice(0, 24).map((item, idx) => (
+                      <div
+                        key={`${item.marketHashName}-${idx}`}
+                        style={{ position: "relative" }}
+                      >
+                        <div
+                          className="skin-card-2d"
+                          style={{
+                            padding: "0.5rem",
+                            minHeight: 60,
+                            display: "flex",
+                            flexDirection: "column",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <div className="skin-card-2d-name" style={{ fontSize: "0.75rem" }}>
+                            {item.marketHashName}
+                          </div>
+                          <div className="status-text" style={{ marginTop: "0.25rem" }}>
+                            {item.suggestedPrice != null
+                              ? `$${item.suggestedPrice.toFixed(2)}`
+                              : item.minPrice != null
+                                ? `$${item.minPrice} – $${item.maxPrice ?? "?"}`
+                                : "—"}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label={t.addAlert}
+                          onClick={openAlertModal(
+                            {
+                              name: item.marketHashName,
+                              description: "",
+                              iconUrl: "/assets/test-skin.png",
+                            },
+                            selectedGameForSkins.appid,
+                          )}
+                          style={{
+                            position: "absolute",
+                            top: "0.35rem",
+                            right: "0.35rem",
+                            width: "28px",
+                            height: "28px",
+                            borderRadius: "50%",
+                            border: "1px solid var(--border-subtle)",
+                            background: "rgba(15,23,42,0.9)",
+                            color: "var(--text-primary)",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "0.9rem",
+                          }}
+                        >
+                          🔔
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </article>
+
+          {inventories[selectedGameForSkins.appid] && (
           <article className="card">
             <div className="card-inner">
               <div className="card-header">
@@ -450,23 +762,53 @@ export const App: React.FC = () => {
                         }
                         return cards;
                       })().map((skin, idx) => (
-                        <button
+                        <div
                           key={`${skin.name}-${idx}`}
-                          type="button"
-                          className="skin-card-2d"
-                          onClick={() => setSelectedSkin(skin)}
+                          style={{ position: "relative" }}
                         >
-                          <div className="skin-card-2d-image-wrap">
-                            <img
-                              src={skin.iconUrl}
-                              alt={skin.name}
-                              className="skin-card-2d-image"
-                            />
-                          </div>
-                          <div className="skin-card-2d-footer">
-                            <div className="skin-card-2d-name">{skin.name}</div>
-                          </div>
-                        </button>
+                          <button
+                            type="button"
+                            className="skin-card-2d"
+                            onClick={() => setSelectedSkin(skin)}
+                          >
+                            <div className="skin-card-2d-image-wrap">
+                              <img
+                                src={skin.iconUrl}
+                                alt={skin.name}
+                                className="skin-card-2d-image"
+                              />
+                            </div>
+                            <div className="skin-card-2d-footer">
+                              <div className="skin-card-2d-name">{skin.name}</div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={t.addAlert}
+                            onClick={openAlertModal(
+                              skin,
+                              selectedGameForSkins.appid,
+                            )}
+                            style={{
+                              position: "absolute",
+                              top: "0.35rem",
+                              right: "0.35rem",
+                              width: "28px",
+                              height: "28px",
+                              borderRadius: "50%",
+                              border: "1px solid var(--border-subtle)",
+                              background: "rgba(15,23,42,0.9)",
+                              color: "var(--text-primary)",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "0.9rem",
+                            }}
+                          >
+                            🔔
+                          </button>
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -524,6 +866,7 @@ export const App: React.FC = () => {
               </div>
             </div>
           </article>
+          )}
         </section>
       )}
     </main>
@@ -559,6 +902,109 @@ export const App: React.FC = () => {
       </header>
 
       {user ? renderLoggedIn() : renderLoggedOut()}
+
+      {alertModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+          }}
+          onClick={() => !alertSubmitting && setAlertModal(null)}
+        >
+          <div
+            className="card"
+            style={{ minWidth: 280, maxWidth: 360 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="card-inner">
+              <h2 className="card-title">{t.addAlert}</h2>
+              <p className="card-kicker">{alertModal.skin.name}</p>
+              <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <label>
+                  <span className="status-text">{t.targetPrice} (USD)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={alertTargetPrice}
+                    onChange={(e) => setAlertTargetPrice(e.target.value)}
+                    placeholder="0.00"
+                    style={{
+                      width: "100%",
+                      marginTop: "0.25rem",
+                      padding: "0.5rem",
+                      borderRadius: "var(--radius-md)",
+                      border: "1px solid var(--border-subtle)",
+                      background: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+                </label>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className={`button-secondary${alertCondition === "below" ? " view-switcher-toggle--active" : ""}`}
+                    onClick={() => setAlertCondition("below")}
+                  >
+                    {t.conditionBelow}
+                  </button>
+                  <button
+                    type="button"
+                    className={`button-secondary${alertCondition === "above" ? " view-switcher-toggle--active" : ""}`}
+                    onClick={() => setAlertCondition("above")}
+                  >
+                    {t.conditionAbove}
+                  </button>
+                </div>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => !alertSubmitting && setAlertModal(null)}
+                    disabled={alertSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    onClick={submitAlert}
+                    disabled={alertSubmitting || !alertTargetPrice.trim()}
+                  >
+                    {alertSubmitting ? "…" : t.addAlert}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          role="alert"
+          style={{
+            position: "fixed",
+            bottom: "1.5rem",
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "0.75rem 1.25rem",
+            background: "rgba(251, 191, 36, 0.95)",
+            color: "#1e293b",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "var(--shadow-soft)",
+            zIndex: 101,
+            fontWeight: 500,
+          }}
+        >
+          {toast}
+        </div>
+      )}
 
       <footer className="footer-note">
         {/* <span>{t.footerLeft}</span> */}
