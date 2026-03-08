@@ -48,7 +48,21 @@ type MarketItem = {
   minPrice?: number | null;
   maxPrice?: number | null;
   source?: string;
+  currency?: string;
 };
+
+type MarketCurrency = "USD" | "EUR" | "PLN";
+
+const CURRENCY_SYMBOLS: Record<MarketCurrency, string> = {
+  USD: "$",
+  EUR: "€",
+  PLN: "zł",
+};
+
+function formatPrice(value: number, currency: MarketCurrency): string {
+  const sym = CURRENCY_SYMBOLS[currency];
+  return sym === "zł" ? `${value.toFixed(2)} zł` : `${sym}${value.toFixed(2)}`;
+}
 
 const TEXT: Record<
   Locale,
@@ -102,6 +116,13 @@ const TEXT: Record<
     marketLoading: string;
     marketEmpty: string;
     yourInventory: string;
+    cancel: string;
+    targetPriceLabel: (currency: string) => string;
+    currencyUsd: string;
+    currencyEur: string;
+    currencyPln: string;
+    showMore: string;
+    itemsLeft: string;
   }
 > = {
   en: {
@@ -144,7 +165,7 @@ const TEXT: Record<
     emptyVaultBody:
       "We could not find CS2, Rust, Dota 2 or TF2 on this account. If you think this is wrong, double-check your Steam privacy settings (profile and inventory set to public).",
     skinsFoundLabel: (count) => `${count} skins found`,
-    skinsGalleryTitle: "Skins gallery",
+    skinsGalleryTitle: "User's skins gallery",
     viewSwitcherHint: "Switch between 2D grid and 3D scene.",
     view2D: "2D",
     view3D: "3D",
@@ -164,6 +185,13 @@ const TEXT: Record<
     marketLoading: "Loading market…",
     marketEmpty: "No market data for this game.",
     yourInventory: "Your inventory",
+    cancel: "Cancel",
+    targetPriceLabel: (currency) => `Target price (${currency})`,
+    currencyUsd: "USD ($)",
+    currencyEur: "EUR (€)",
+    currencyPln: "PLN (zł)",
+    showMore: "Show more",
+    itemsLeft: "left",
   },
   pl: {
     homeEyebrow: "Menedżer ekwipunku Steam",
@@ -205,7 +233,7 @@ const TEXT: Record<
     emptyVaultBody:
       "Nie znaleźliśmy CS2, Rust, Dota 2 ani TF2 na tym koncie. Jeśli to błąd, sprawdź ustawienia prywatności Steam (profil i ekwipunek ustawione na publiczne).",
     skinsFoundLabel: (count) => `Znaleziono ${count} skinów`,
-    skinsGalleryTitle: "Galeria skinów",
+    skinsGalleryTitle: "Galeria skinów użytkownika",
     viewSwitcherHint: "Przełącz między siatką 2D a sceną 3D.",
     view2D: "2D",
     view3D: "3D",
@@ -225,6 +253,13 @@ const TEXT: Record<
     marketLoading: "Ładowanie rynku…",
     marketEmpty: "Brak danych rynkowych dla tej gry.",
     yourInventory: "Twój ekwipunek",
+    cancel: "Anuluj",
+    targetPriceLabel: (currency) => `Cena docelowa (${currency})`,
+    currencyUsd: "USD ($)",
+    currencyEur: "EUR (€)",
+    currencyPln: "PLN (zł)",
+    showMore: "Pokaż więcej",
+    itemsLeft: "pozostało",
   },
 };
 
@@ -263,6 +298,8 @@ export const App: React.FC = () => {
   const [toast, setToast] = useState<string | null>(null);
   const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
   const [loadingMarket, setLoadingMarket] = useState(false);
+  const [marketCurrency, setMarketCurrency] = useState<MarketCurrency>("USD");
+  const [marketVisibleCount, setMarketVisibleCount] = useState(100);
 
   const t = TEXT[locale];
 
@@ -349,12 +386,13 @@ export const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const openAlertModal = (skin: SkinCard, gameId: number) => (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setAlertModal({ skin, gameId });
-    setAlertTargetPrice("");
-    setAlertCondition("below");
-  };
+  const openAlertModal =
+    (skin: SkinCard, gameId: number) => (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setAlertModal({ skin, gameId });
+      setAlertTargetPrice("");
+      setAlertCondition("below");
+    };
 
   const submitAlert = async () => {
     if (!alertModal || !alertTargetPrice.trim()) return;
@@ -417,9 +455,10 @@ export const App: React.FC = () => {
     setLoadingMarket(true);
     try {
       const resp = await apiClient.get<{ items: MarketItem[] }>(
-        `/api/market/prices?gameId=${selectedGameForSkins.appid}&currency=USD`,
+        `/api/market/prices?gameId=${selectedGameForSkins.appid}&currency=${marketCurrency}`,
       );
       setMarketItems(resp.data.items || []);
+      setMarketVisibleCount(100);
     } catch {
       setMarketItems([]);
     } finally {
@@ -443,7 +482,12 @@ export const App: React.FC = () => {
     } else {
       setMarketItems([]);
     }
-  }, [user?.steamid, selectedGameForSkins?.appid, dashboardTab]);
+  }, [
+    user?.steamid,
+    selectedGameForSkins?.appid,
+    dashboardTab,
+    marketCurrency,
+  ]);
 
   const renderLoggedOut = () => (
     <main className="app-grid">
@@ -572,12 +616,12 @@ export const App: React.FC = () => {
                             gap: "0.5rem",
                           }}
                         >
-                          <span style={{ fontWeight: 500 }}>{a.marketHashName}</span>
+                          <span style={{ fontWeight: 500 }}>
+                            {a.marketHashName}
+                          </span>
                           <span className="status-text">
-                            {a.condition === "below"
-                              ? "≤"
-                              : "≥"}{" "}
-                            {a.targetPrice} USD
+                            {a.condition === "below" ? "≤" : "≥"}{" "}
+                            {formatPrice(Number(a.targetPrice), marketCurrency)}
                           </span>
                         </li>
                       ))}
@@ -633,239 +677,328 @@ export const App: React.FC = () => {
                 </span>
               </h2>
               <div className="card-body">
+                <div
+                  className="view-switcher"
+                  style={{
+                    marginBottom: "0.75rem",
+                    justifyContent: "flex-start",
+                  }}
+                >
+                  {(["USD", "EUR", "PLN"] as const).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`view-switcher-toggle${marketCurrency === c ? " view-switcher-toggle--active" : ""}`}
+                      onClick={() => setMarketCurrency(c)}
+                    >
+                      <span className="view-switcher-label">
+                        {c === "USD"
+                          ? t.currencyUsd
+                          : c === "EUR"
+                            ? t.currencyEur
+                            : t.currencyPln}
+                      </span>
+                    </button>
+                  ))}
+                </div>
                 {loadingMarket ? (
                   <p className="status-text">{t.marketLoading}</p>
                 ) : marketItems.length === 0 ? (
                   <p className="status-text">{t.marketEmpty}</p>
                 ) : (
-                  <div
-                    className="skin-grid-2d"
-                    style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
-                  >
-                    {marketItems.slice(0, 24).map((item, idx) => (
+                  <>
+                    <div
+                      className="skin-grid-2d"
+                      style={{
+                        gridTemplateColumns:
+                          "repeat(auto-fill, minmax(140px, 1fr))",
+                      }}
+                    >
+                      {marketItems
+                        .slice(0, marketVisibleCount)
+                        .map((item, idx) => (
+                          <div
+                            key={`${item.marketHashName}-${idx}`}
+                            style={{ position: "relative" }}
+                          >
+                            <div
+                              className="skin-card-2d"
+                              style={{
+                                padding: 0,
+                                overflow: "hidden",
+                                display: "flex",
+                                flexDirection: "column",
+                                minHeight: 0,
+                              }}
+                            >
+                              <div
+                                className="skin-card-2d-image-wrap"
+                                style={{
+                                  aspectRatio: "1",
+                                  background: "var(--bg-elevated)",
+                                }}
+                              >
+                                <img
+                                  src="/assets/test-skin.png"
+                                  alt=""
+                                  className="skin-card-2d-image"
+                                  style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                  }}
+                                />
+                              </div>
+                              <div
+                                style={{ padding: "0.4rem 0.5rem", flex: 1 }}
+                              >
+                                <div
+                                  className="skin-card-2d-name"
+                                  style={{
+                                    fontSize: "0.7rem",
+                                    lineHeight: 1.2,
+                                  }}
+                                >
+                                  {item.marketHashName}
+                                </div>
+                                <div
+                                  className="status-text"
+                                  style={{
+                                    marginTop: "0.2rem",
+                                    fontSize: "0.75rem",
+                                  }}
+                                >
+                                  {item.suggestedPrice != null
+                                    ? formatPrice(
+                                        item.suggestedPrice,
+                                        marketCurrency,
+                                      )
+                                    : item.minPrice != null
+                                      ? `${formatPrice(item.minPrice, marketCurrency)} – ${item.maxPrice != null ? formatPrice(item.maxPrice, marketCurrency) : "?"}`
+                                      : "—"}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              aria-label={t.addAlert}
+                              onClick={openAlertModal(
+                                {
+                                  name: item.marketHashName,
+                                  description: "",
+                                  iconUrl: "/assets/test-skin.png",
+                                },
+                                selectedGameForSkins.appid,
+                              )}
+                              style={{
+                                position: "absolute",
+                                top: "0.35rem",
+                                right: "0.35rem",
+                                width: "28px",
+                                height: "28px",
+                                borderRadius: "50%",
+                                border: "1px solid var(--border-subtle)",
+                                background: "rgba(15,23,42,0.9)",
+                                color: "var(--text-primary)",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "0.9rem",
+                              }}
+                            >
+                              🔔
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                    {marketVisibleCount < marketItems.length && (
                       <div
-                        key={`${item.marketHashName}-${idx}`}
-                        style={{ position: "relative" }}
+                        style={{ marginTop: "0.75rem", textAlign: "center" }}
                       >
-                        <div
-                          className="skin-card-2d"
-                          style={{
-                            padding: "0.5rem",
-                            minHeight: 60,
-                            display: "flex",
-                            flexDirection: "column",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <div className="skin-card-2d-name" style={{ fontSize: "0.75rem" }}>
-                            {item.marketHashName}
-                          </div>
-                          <div className="status-text" style={{ marginTop: "0.25rem" }}>
-                            {item.suggestedPrice != null
-                              ? `$${item.suggestedPrice.toFixed(2)}`
-                              : item.minPrice != null
-                                ? `$${item.minPrice} – $${item.maxPrice ?? "?"}`
-                                : "—"}
-                          </div>
-                        </div>
                         <button
                           type="button"
-                          aria-label={t.addAlert}
-                          onClick={openAlertModal(
-                            {
-                              name: item.marketHashName,
-                              description: "",
-                              iconUrl: "/assets/test-skin.png",
-                            },
-                            selectedGameForSkins.appid,
-                          )}
-                          style={{
-                            position: "absolute",
-                            top: "0.35rem",
-                            right: "0.35rem",
-                            width: "28px",
-                            height: "28px",
-                            borderRadius: "50%",
-                            border: "1px solid var(--border-subtle)",
-                            background: "rgba(15,23,42,0.9)",
-                            color: "var(--text-primary)",
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "0.9rem",
-                          }}
+                          className="button-secondary"
+                          onClick={() =>
+                            setMarketVisibleCount((n) =>
+                              Math.min(n + 100, marketItems.length),
+                            )
+                          }
                         >
-                          🔔
+                          {t.showMore} (
+                          {marketItems.length - marketVisibleCount}{" "}
+                          {t.itemsLeft})
                         </button>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           </article>
 
           {inventories[selectedGameForSkins.appid] && (
-          <article className="card">
-            <div className="card-inner">
-              <div className="card-header">
-                <div className="card-title-block">
-                  <h2 className="card-title">
-                    {t.skinsGalleryTitle}{" "}
-                    <span
-                      style={{ color: "var(--text-muted)", fontWeight: 500 }}
+            <article className="card">
+              <div className="card-inner">
+                <div className="card-header">
+                  <div className="card-title-block">
+                    <h2 className="card-title">
+                      {t.skinsGalleryTitle}{" "}
+                      <span
+                        style={{ color: "var(--text-muted)", fontWeight: 500 }}
+                      >
+                        ({selectedGameForSkins.name})
+                      </span>
+                    </h2>
+                    {/* <p className="card-kicker">{t.viewSwitcherHint}</p> */}
+                  </div>
+                  <div className="view-switcher">
+                    <button
+                      type="button"
+                      className={`view-switcher-toggle${viewMode === "2D" ? " view-switcher-toggle--active" : ""}`}
+                      onClick={() => setViewMode("2D")}
                     >
-                      ({selectedGameForSkins.name})
-                    </span>
-                  </h2>
-                  {/* <p className="card-kicker">{t.viewSwitcherHint}</p> */}
+                      <span className="view-switcher-icon">▦</span>
+                      <span className="view-switcher-label">{t.view2D}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`view-switcher-toggle${viewMode === "3D" ? " view-switcher-toggle--active" : ""}`}
+                      // onClick={() => setViewMode("3D")}
+                    >
+                      <span className="view-switcher-icon">⬢</span>
+                      <span className="view-switcher-label">{t.view3D}</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="view-switcher">
-                  <button
-                    type="button"
-                    className={`view-switcher-toggle${viewMode === "2D" ? " view-switcher-toggle--active" : ""}`}
-                    onClick={() => setViewMode("2D")}
-                  >
-                    <span className="view-switcher-icon">▦</span>
-                    <span className="view-switcher-label">{t.view2D}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`view-switcher-toggle${viewMode === "3D" ? " view-switcher-toggle--active" : ""}`}
-                    // onClick={() => setViewMode("3D")}
-                  >
-                    <span className="view-switcher-icon">⬢</span>
-                    <span className="view-switcher-label">{t.view3D}</span>
-                  </button>
-                </div>
-              </div>
-              <div className="card-body">
-                <div className="gallery-view" key={viewMode}>
-                  {viewMode === "2D" ? (
-                    <div className="skin-grid-2d">
-                      {(() => {
-                        const base =
-                          inventories[selectedGameForSkins.appid].items;
-                        const maxCards = 8;
-                        const sourceCount = Math.min(
-                          base.length || 1,
-                          maxCards,
-                        );
-                        const cards: SkinCard[] = [];
-                        for (let i = 0; i < maxCards; i += 1) {
-                          const src = base[i % sourceCount];
-                          cards.push({
-                            ...src,
-                            name: `${src.name} #${i + 1}`,
-                          });
-                        }
-                        return cards;
-                      })().map((skin, idx) => (
-                        <div
-                          key={`${skin.name}-${idx}`}
-                          style={{ position: "relative" }}
-                        >
-                          <button
-                            type="button"
-                            className="skin-card-2d"
-                            onClick={() => setSelectedSkin(skin)}
+                <div className="card-body">
+                  <div className="gallery-view" key={viewMode}>
+                    {viewMode === "2D" ? (
+                      <div className="skin-grid-2d">
+                        {(() => {
+                          const base =
+                            inventories[selectedGameForSkins.appid].items;
+                          const maxCards = 8;
+                          const sourceCount = Math.min(
+                            base.length || 1,
+                            maxCards,
+                          );
+                          const cards: SkinCard[] = [];
+                          for (let i = 0; i < maxCards; i += 1) {
+                            const src = base[i % sourceCount];
+                            cards.push({
+                              ...src,
+                              name: `${src.name} #${i + 1}`,
+                            });
+                          }
+                          return cards;
+                        })().map((skin, idx) => (
+                          <div
+                            key={`${skin.name}-${idx}`}
+                            style={{ position: "relative" }}
                           >
-                            <div className="skin-card-2d-image-wrap">
-                              <img
-                                src={skin.iconUrl}
-                                alt={skin.name}
-                                className="skin-card-2d-image"
-                              />
-                            </div>
-                            <div className="skin-card-2d-footer">
-                              <div className="skin-card-2d-name">{skin.name}</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={t.addAlert}
-                            onClick={openAlertModal(
-                              skin,
-                              selectedGameForSkins.appid,
-                            )}
-                            style={{
-                              position: "absolute",
-                              top: "0.35rem",
-                              right: "0.35rem",
-                              width: "28px",
-                              height: "28px",
-                              borderRadius: "50%",
-                              border: "1px solid var(--border-subtle)",
-                              background: "rgba(15,23,42,0.9)",
-                              color: "var(--text-primary)",
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: "0.9rem",
-                            }}
-                          >
-                            🔔
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
+                            <button
+                              type="button"
+                              className="skin-card-2d"
+                              onClick={() => setSelectedSkin(skin)}
+                            >
+                              <div className="skin-card-2d-image-wrap">
+                                <img
+                                  src={skin.iconUrl}
+                                  alt={skin.name}
+                                  className="skin-card-2d-image"
+                                />
+                              </div>
+                              <div className="skin-card-2d-footer">
+                                <div className="skin-card-2d-name">
+                                  {skin.name}
+                                </div>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={t.addAlert}
+                              onClick={openAlertModal(
+                                skin,
+                                selectedGameForSkins.appid,
+                              )}
+                              style={{
+                                position: "absolute",
+                                top: "0.35rem",
+                                right: "0.35rem",
+                                width: "28px",
+                                height: "28px",
+                                borderRadius: "50%",
+                                border: "1px solid var(--border-subtle)",
+                                background: "rgba(15,23,42,0.9)",
+                                color: "var(--text-primary)",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "0.9rem",
+                              }}
+                            >
+                              🔔
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        className="canvas-shell"
+                        style={{ padding: "0.75rem" }}
+                      >
+                        <WebGLCanvas
+                          skins={inventories[selectedGameForSkins.appid].items}
+                          onSkinSelect={setSelectedSkin}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedSkin && (
                     <div
-                      className="canvas-shell"
-                      style={{ padding: "0.75rem" }}
+                      style={{
+                        marginTop: "0.85rem",
+                        fontSize: "0.85rem",
+                        color: "var(--text-primary)",
+                      }}
                     >
-                      <WebGLCanvas
-                        skins={inventories[selectedGameForSkins.appid].items}
-                        onSkinSelect={setSelectedSkin}
-                      />
+                      <div style={{ fontWeight: 650 }}>{selectedSkin.name}</div>
+                      <div
+                        style={{
+                          whiteSpace: "pre-line",
+                          marginTop: "0.25rem",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        {(() => {
+                          const desc = selectedSkin.description;
+                          const isMockFromApi =
+                            selectedSkin.isMock &&
+                            selectedSkin.mockIndex != null &&
+                            selectedGameForSkins;
+                          const isMockFromContent =
+                            desc.includes("no live Steam data") &&
+                            selectedGameForSkins;
+                          const matchIndex = desc.match(
+                            /#(\d+)\s*\(no live Steam/,
+                          );
+                          const index =
+                            selectedSkin.mockIndex ??
+                            (matchIndex ? Number(matchIndex[1]) : 1);
+                          const appid = selectedGameForSkins?.appid ?? 0;
+                          if (isMockFromApi || isMockFromContent)
+                            return t.debugMockDescription(appid, index);
+                          return desc;
+                        })()}
+                      </div>
                     </div>
                   )}
                 </div>
-
-                {selectedSkin && (
-                  <div
-                    style={{
-                      marginTop: "0.85rem",
-                      fontSize: "0.85rem",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    <div style={{ fontWeight: 650 }}>{selectedSkin.name}</div>
-                    <div
-                      style={{
-                        whiteSpace: "pre-line",
-                        marginTop: "0.25rem",
-                        color: "var(--text-muted)",
-                      }}
-                    >
-                      {(() => {
-                        const desc = selectedSkin.description;
-                        const isMockFromApi =
-                          selectedSkin.isMock &&
-                          selectedSkin.mockIndex != null &&
-                          selectedGameForSkins;
-                        const isMockFromContent =
-                          desc.includes("no live Steam data") &&
-                          selectedGameForSkins;
-                        const matchIndex = desc.match(
-                          /#(\d+)\s*\(no live Steam/,
-                        );
-                        const index =
-                          selectedSkin.mockIndex ??
-                          (matchIndex ? Number(matchIndex[1]) : 1);
-                        const appid = selectedGameForSkins?.appid ?? 0;
-                        if (isMockFromApi || isMockFromContent)
-                          return t.debugMockDescription(appid, index);
-                        return desc;
-                      })()}
-                    </div>
-                  </div>
-                )}
               </div>
-            </div>
-          </article>
+            </article>
           )}
         </section>
       )}
@@ -924,9 +1057,18 @@ export const App: React.FC = () => {
             <div className="card-inner">
               <h2 className="card-title">{t.addAlert}</h2>
               <p className="card-kicker">{alertModal.skin.name}</p>
-              <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div
+                className="card-body"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.75rem",
+                }}
+              >
                 <label>
-                  <span className="status-text">{t.targetPrice} (USD)</span>
+                  <span className="status-text">
+                    {t.targetPriceLabel(CURRENCY_SYMBOLS[marketCurrency])}
+                  </span>
                   <input
                     type="number"
                     min="0"
@@ -968,7 +1110,7 @@ export const App: React.FC = () => {
                     onClick={() => !alertSubmitting && setAlertModal(null)}
                     disabled={alertSubmitting}
                   >
-                    Cancel
+                    {t.cancel}
                   </button>
                   <button
                     type="button"
