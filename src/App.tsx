@@ -1,10 +1,6 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { API_BASE_URL, apiClient } from "./api";
 import { WebGLCanvas, SkinCard } from "./components/WebGLCanvas";
-
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-  "http://localhost:4000";
 
 type Locale = "en" | "pl";
 
@@ -196,12 +192,7 @@ export const App: React.FC = () => {
     try {
       setLoadingUser(true);
       setError(null);
-      const resp = await axios.get<{ user: SteamUser }>(
-        `${API_BASE_URL}/api/auth/me`,
-        {
-          withCredentials: true,
-        },
-      );
+      const resp = await apiClient.get<{ user: SteamUser }>("/api/auth/me");
       setUser(resp.data.user);
     } catch {
       setUser(null);
@@ -215,11 +206,8 @@ export const App: React.FC = () => {
     try {
       setLoadingGames(true);
       setError(null);
-      const resp = await axios.get<{ games: SteamGame[] }>(
-        `${API_BASE_URL}/api/auth/me/games`,
-        {
-          withCredentials: true,
-        },
+      const resp = await apiClient.get<{ games: SteamGame[] }>(
+        "/api/auth/me/games",
       );
       setGames(resp.data.games);
     } catch (e: any) {
@@ -232,12 +220,10 @@ export const App: React.FC = () => {
   const fetchInventories = async () => {
     if (!user) return;
     try {
-      const resp = await axios.get<{
+      const resp = await apiClient.get<{
         inventories: Record<string, GameInventory>;
         ownsAnyTarget: boolean;
-      }>(`${API_BASE_URL}/api/auth/me/inventory`, {
-        withCredentials: true,
-      });
+      }>("/api/auth/me/inventory");
       const mapped: Record<number, GameInventory> = {};
       Object.values(resp.data.inventories).forEach((inv) => {
         mapped[inv.appid] = inv;
@@ -249,32 +235,9 @@ export const App: React.FC = () => {
     }
   };
 
-  const startLogin = async () => {
-    try {
-      setError(null);
-      const powToken = "dev-ok";
-      const resp = await axios.get(`${API_BASE_URL}/api/auth/steam/start`, {
-        withCredentials: true,
-        headers: {
-          "X-POW-Token": powToken,
-        },
-      });
-      const { redirectUrl } = resp.data;
-      window.location.href = `${API_BASE_URL}${redirectUrl}`;
-    } catch (e: any) {
-      setError(e?.response?.data?.error || t.errorStartLogin);
-    }
-  };
-
   const logout = async () => {
     try {
-      await axios.post(
-        `${API_BASE_URL}/api/auth/logout`,
-        {},
-        {
-          withCredentials: true,
-        },
-      );
+      await apiClient.post("/api/auth/logout", {});
     } finally {
       setUser(null);
       setGames([]);
@@ -311,13 +274,20 @@ export const App: React.FC = () => {
                 <span className="pill-small">{t.homeBullet3}</span>
               </div>
               <div className="button-row">
-                <button
-                  className="button-primary"
-                  onClick={startLogin}
-                  disabled={loadingUser}
-                >
-                  {loadingUser ? t.loginChecking : t.loginWithSteam}
-                </button>
+                {loadingUser ? (
+                  <span className="button-primary" style={{ opacity: 0.8 }}>
+                    {t.loginChecking}
+                  </span>
+                ) : (
+                  <a
+                    className="button-primary"
+                    href={`${API_BASE_URL}/api/auth/steam/start`}
+                    target="_self"
+                    rel="noopener noreferrer"
+                  >
+                    {t.loginWithSteam}
+                  </a>
+                )}
               </div>
               {error && (
                 <div className="status-text status-text--error">{error}</div>

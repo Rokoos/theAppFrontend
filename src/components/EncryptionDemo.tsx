@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:4000';
+import { apiClient } from '../api';
 
 export const EncryptionDemo: React.FC = () => {
   const [plaintext, setPlaintext] = useState('Sample secret payload');
@@ -14,11 +12,10 @@ export const EncryptionDemo: React.FC = () => {
       setError(null);
       setDecrypted(null);
       const powToken = 'dev-ok';
-      const resp = await axios.post(
-        `${API_BASE_URL}/api/crypto/encrypt`,
-        { plaintext, powToken },
-        { withCredentials: true }
-      );
+      const resp = await apiClient.post('/api/crypto/encrypt', {
+        plaintext,
+        powToken,
+      });
       setCipherPayload(resp.data);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Encrypt failed');
@@ -30,11 +27,10 @@ export const EncryptionDemo: React.FC = () => {
     try {
       setError(null);
       const powToken = 'dev-ok';
-      const resp = await axios.post(
-        `${API_BASE_URL}/api/crypto/decrypt`,
-        { ...cipherPayload, powToken },
-        { withCredentials: true }
-      );
+      const resp = await apiClient.post('/api/crypto/decrypt', {
+        ...cipherPayload,
+        powToken,
+      });
       setDecrypted(resp.data.plaintext);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Decrypt failed');

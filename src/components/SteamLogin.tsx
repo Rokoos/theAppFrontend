@@ -1,37 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:4000';
+import { API_BASE_URL, apiClient } from '../api';
 
 export const SteamLogin: React.FC = () => {
-  const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const startLogin = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const powToken = 'dev-ok';
-      const resp = await axios.get(`${API_BASE_URL}/api/auth/steam/start`, {
-        withCredentials: true,
-        headers: {
-          'X-POW-Token': powToken
-        }
-      });
-      const { redirectUrl } = resp.data;
-      window.location.href = `${API_BASE_URL}${redirectUrl}`;
-    } catch (e: any) {
-      setError(e?.response?.data?.error || 'Failed to start Steam login');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const fetchMe = async () => {
     try {
       setError(null);
-      const resp = await axios.get(`${API_BASE_URL}/api/auth/me`, { withCredentials: true });
+      const resp = await apiClient.get('/api/auth/me');
       setUser(resp.data.user);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Not authenticated');
@@ -47,9 +24,14 @@ export const SteamLogin: React.FC = () => {
     <div className="card-body">
       <div className="button-row">
         {!user && (
-          <button className="button-primary" onClick={startLogin} disabled={loading}>
-            {loading ? 'Redirecting to Steam…' : 'Login with Steam'}
-          </button>
+          <a
+            className="button-primary"
+            href={`${API_BASE_URL}/api/auth/steam/start`}
+            target="_self"
+            rel="noopener noreferrer"
+          >
+            Login with Steam
+          </a>
         )}
         <button className="button-secondary" onClick={fetchMe}>
           Refresh session
