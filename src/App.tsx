@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { API_BASE_URL, apiClient } from "./api";
 import { WebGLCanvas, SkinCard } from "./components/WebGLCanvas";
+import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from "./utils/skins";
 
 type Locale = "en" | "pl";
 
@@ -748,11 +749,17 @@ export const App: React.FC = () => {
                         >
                           <div className="skin-card-2d">
                             <div className="skin-card-2d-image-wrap">
-                              <img
-                                src="/assets/test-skin.png"
-                                alt=""
-                                className="skin-card-2d-image"
-                              />
+                                <img
+                                  src={getSkinImage(item.marketHashName, {
+                                    appId: selectedGameForMarket.appid,
+                                  })}
+                                  onError={(e) => {
+                                    e.currentTarget.onerror = null;
+                                    e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
+                                  }}
+                                  alt={item.marketHashName}
+                                  className="skin-card-2d-image"
+                                />
                             </div>
                             <div className="skin-card-2d-footer">
                               <div className="skin-card-2d-name">
@@ -972,7 +979,14 @@ export const App: React.FC = () => {
                             >
                               <div className="skin-card-2d-image-wrap">
                                 <img
-                                  src={skin.iconUrl}
+                                  src={getSkinImage(skin.name, {
+                                    appId: selectedGameForSkins.appid,
+                                    iconUrl: skin.iconUrl,
+                                  })}
+                                  onError={(e) => {
+                                    e.currentTarget.onerror = null;
+                                    e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
+                                  }}
                                   alt={skin.name}
                                   className="skin-card-2d-image"
                                 />

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mockEncrypt, mockDecrypt } from '../utils/mockCrypto';
+import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from '../utils/skins';
 
 const MAX_TEXTURE_SIZE = 2048;
 const MAX_TOTAL_BUFFER_BYTES = 32 * 1024 * 1024;
@@ -303,11 +304,13 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect }) => {
       const maxItems = Math.min(items.length, 8);
       const displayItems = items.slice(0, maxItems);
 
-      displayItems.forEach((skin, i) => {
-        const iconUrl = skin.iconUrl.startsWith('http') ? skin.iconUrl : skin.iconUrl;
-        loader.load(
-          iconUrl,
-          (texture: THREE.Texture) => {
+      const loadCardTexture = (skin: SkinCard) => {
+        const primaryUrl = getSkinImage(skin.name, { iconUrl: skin.iconUrl });
+
+        const loadWithFallback = (url: string, isFallback = false) => {
+          loader.load(
+            url,
+            (texture: THREE.Texture) => {
             texture.anisotropy = renderer ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 4;
             if (texture.image && 'width' in texture.image && texture.image.width > MAX_TEXTURE_SIZE) {
               texture.image.width = MAX_TEXTURE_SIZE;
@@ -344,8 +347,19 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect }) => {
             reflow();
           },
           undefined,
-          () => {}
-        );
+          () => {
+            if (!isFallback) {
+              loadWithFallback(PLACEHOLDER_SKIN_IMAGE, true);
+            }
+          }
+          );
+        };
+
+        loadWithFallback(primaryUrl);
+      };
+
+      displayItems.forEach((skin) => {
+        loadCardTexture(skin);
       });
 
       const animate = () => {
