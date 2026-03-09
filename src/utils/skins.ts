@@ -1,13 +1,14 @@
 const PLACEHOLDER_SKIN_IMAGE = "/assets/test-skin.png";
 
 /**
- * Build a Steam Community CDN image URL for a skin name.
+ * Build a SteamApis image URL for a skin (by market_hash_name).
  *
- * Note: Steam normally requires an icon hash/path from the Web API.
- * This helper encodes the human-readable market hash name and uses a
- * conventional CDN pattern so it is easy to adjust later if you decide
- * to persist real icon paths. If the remote image fails, callers should
- * fall back to PLACEHOLDER_SKIN_IMAGE.
+ * Uses SteamApis `/image/item/{AppID}/{market_hash_name}` endpoint, which
+ * 302-redirects directly to the Steam CDN PNG/WEBP. No api_key is required.
+ *
+ * If you already have a concrete icon URL from Steam (or local), pass it via
+ * options.iconUrl and it will be used instead. Callers are expected to attach
+ * an `onError` fallback to PLACEHOLDER_SKIN_IMAGE.
  */
 export function getSkinImage(
   marketHashName: string,
@@ -20,8 +21,8 @@ export function getSkinImage(
     iconUrl?: string | null;
   },
 ): string {
-  const appId = options?.appId ?? 730; // default to CS2
   const iconUrl = options?.iconUrl ?? "";
+  const appId = options?.appId ?? 730; // default to CS2
 
   if (iconUrl && (iconUrl.startsWith("http://") || iconUrl.startsWith("https://") || iconUrl.startsWith("/"))) {
     return iconUrl;
@@ -34,10 +35,8 @@ export function getSkinImage(
 
   const encodedName = encodeURIComponent(trimmed);
 
-  // This pattern is a placeholder that can be updated once you decide
-  // how to persist real Steam icon paths. Keeping it in one place makes
-  // it easy to adjust without touching the rest of the UI.
-  return `https://community.cloudflare.steamstatic.com/economy/image/class/${appId}/${encodedName}`;
+  // SteamApis: redirects to the actual Steam CDN image for this item.
+  return `https://api.steamapis.com/image/item/${appId}/${encodedName}`;
 }
 
 export { PLACEHOLDER_SKIN_IMAGE };

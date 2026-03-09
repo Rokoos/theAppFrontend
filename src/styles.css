@@ -319,6 +319,10 @@ body {
   gap: 0.75rem;
 }
 
+.skin-grid-2d > * {
+  min-width: 0;
+}
+
 @media (max-width: 449px) {
   .skin-grid-2d {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -349,6 +353,8 @@ body {
   cursor: pointer;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.85);
   transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, border-color 0.12s ease-out, background 0.12s ease-out;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .skin-card-2d:hover {
@@ -373,11 +379,14 @@ body {
 .skin-card-2d-footer {
   margin-top: 0.15rem;
   border-radius: 999px;
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.6rem;
   background: radial-gradient(circle at top, rgba(56,189,248,0.18), rgba(15,23,42,0.9));
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
   max-width: 100%;
+  min-width: 0;
 }
 
 .skin-card-2d-name {
@@ -387,6 +396,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
+  min-width: 0;
 }
 
 @media (max-width: 349px) {

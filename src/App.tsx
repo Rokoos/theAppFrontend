@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiClient } from "./api";
 import { WebGLCanvas, SkinCard } from "./components/WebGLCanvas";
 import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from "./utils/skins";
@@ -310,6 +310,7 @@ export const App: React.FC = () => {
   const [marketPage, setMarketPage] = useState(1);
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [marketCurrency, setMarketCurrency] = useState<MarketCurrency>("USD");
+  const marketSectionRef = useRef<HTMLElement | null>(null);
 
   const t = TEXT[locale];
 
@@ -462,8 +463,12 @@ export const App: React.FC = () => {
 
   const MARKET_PAGE_SIZE = 50;
 
-  const fetchMarketPrices = async (page: number) => {
-    if (!user || !selectedGameForMarket) return;
+  const fetchMarketPrices = async (
+    page: number,
+    gameOverride?: SteamGame | null,
+  ) => {
+    const game = gameOverride ?? selectedGameForMarket;
+    if (!user || !game) return;
     setLoadingMarket(true);
     try {
       const offset = (page - 1) * MARKET_PAGE_SIZE;
@@ -471,7 +476,7 @@ export const App: React.FC = () => {
         "/api/market/prices",
         {
           params: {
-            gameId: selectedGameForMarket.appid,
+            gameId: game.appid,
             currency: marketCurrency,
             limit: MARKET_PAGE_SIZE,
             offset,
@@ -484,6 +489,16 @@ export const App: React.FC = () => {
       setMarketItems(items);
       setMarketTotal(total);
       setMarketPage(page);
+      if (page !== 1 && marketSectionRef.current && typeof window !== "undefined") {
+        const el = marketSectionRef.current;
+        const rect = el.getBoundingClientRect();
+        const headerOffset = 80; // approximate header height
+        const targetTop = Math.max(window.scrollY + rect.top - headerOffset, 0);
+        window.scrollTo({
+          top: targetTop,
+          behavior: "smooth",
+        });
+      }
     } catch {
       setMarketItems([]);
       setMarketTotal(0);
@@ -500,7 +515,10 @@ export const App: React.FC = () => {
         playtimeHours: 0,
       };
       if (!selectedGameForSkins) setSelectedGameForSkins(defaultGame);
-      if (!selectedGameForMarket) setSelectedGameForMarket(defaultGame);
+      if (!selectedGameForMarket) {
+        setSelectedGameForMarket(defaultGame);
+        void fetchMarketPrices(1, defaultGame);
+      }
     }
   }, [user, dashboardTab]);
 
@@ -701,7 +719,11 @@ export const App: React.FC = () => {
       )}
 
       {selectedGameForMarket && (
-        <section className="app-column" style={{ gridColumn: "1 / -1" }}>
+        <section
+          className="app-column"
+          style={{ gridColumn: "1 / -1" }}
+          ref={marketSectionRef}
+        >
           <article className="card" style={{ marginBottom: "1rem" }}>
             <div className="card-inner">
               <h2 className="card-title" style={{ marginBottom: "0.5rem" }}>
@@ -912,19 +934,17 @@ export const App: React.FC = () => {
                   );
                 })}
               </div>
-              {inventories[selectedGameForSkins.appid] && (
-            <article className="card">
+              <article className="card">
               <div className="card-inner">
                 <div className="card-header">
                   <div className="card-title-block">
-                    <h2 className="card-title">
-                      {t.skinsGalleryTitle}{" "}
-                      <span
-                        style={{ color: "var(--text-muted)", fontWeight: 500 }}
-                      >
-                        ({selectedGameForSkins.name})
-                      </span>
-                    </h2>
+                    <h2 className="card-title">{t.skinsGalleryTitle}</h2>
+                    <p
+                      className="card-kicker"
+                      style={{ marginTop: "0.15rem", marginBottom: 0 }}
+                    >
+                      {selectedGameForSkins.name}
+                    </p>
                     {/* <p className="card-kicker">{t.viewSwitcherHint}</p> */}
                   </div>
                   <div className="view-switcher">
@@ -952,7 +972,7 @@ export const App: React.FC = () => {
                       <div className="skin-grid-2d">
                         {(() => {
                           const base =
-                            inventories[selectedGameForSkins.appid].items;
+                            inventories[selectedGameForSkins.appid]?.items ?? [];
                           const maxCards = 8;
                           const sourceCount = Math.min(
                             base.length || 1,
@@ -961,70 +981,62 @@ export const App: React.FC = () => {
                           const cards: SkinCard[] = [];
                           for (let i = 0; i < maxCards; i += 1) {
                             const src = base[i % sourceCount];
-                            cards.push({
-                              ...src,
-                              name: `${src.name} #${i + 1}`,
-                            });
+                            if (src) {
+                              cards.push({
+                                ...src,
+                                name: `${src.name} #${i + 1}`,
+                              });
+                            } else {
+                              cards.push({
+                                name: `Skin #${i + 1}`,
+                                description: "",
+                                iconUrl: PLACEHOLDER_SKIN_IMAGE,
+                              });
+                            }
                           }
                           return cards;
-                        })().map((skin, idx) => (
-                          <div
-                            key={`${skin.name}-${idx}`}
-                            style={{ position: "relative" }}
-                          >
-                            <button
-                              type="button"
-                              className="skin-card-2d"
-                              onClick={() => setSelectedSkin(skin)}
+                        })().map((skin, idx) => {
+                          let displayName = skin.name;
+                          const gameName = selectedGameForSkins.name;
+                          if (gameName) {
+                            displayName = displayName
+                              .replace(new RegExp(`\\s*–\\s*${gameName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "gi"), "")
+                              .replace(new RegExp(`\\s*\\(\\s*${gameName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\)`, "gi"), "")
+                              .trim();
+                          }
+                          return (
+                            <div
+                              key={`${skin.name}-${idx}`}
+                              style={{ position: "relative" }}
                             >
-                              <div className="skin-card-2d-image-wrap">
-                                <img
-                                  src={getSkinImage(skin.name, {
-                                    appId: selectedGameForSkins.appid,
-                                    iconUrl: skin.iconUrl,
-                                  })}
-                                  onError={(e) => {
-                                    e.currentTarget.onerror = null;
-                                    e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
-                                  }}
-                                  alt={skin.name}
-                                  className="skin-card-2d-image"
-                                />
-                              </div>
-                              <div className="skin-card-2d-footer">
-                                <div className="skin-card-2d-name">
-                                  {skin.name}
+                              <button
+                                type="button"
+                                className="skin-card-2d"
+                                onClick={() => setSelectedSkin(skin)}
+                              >
+                                <div className="skin-card-2d-image-wrap">
+                                  <img
+                                    src={getSkinImage(skin.name, {
+                                      appId: selectedGameForSkins.appid,
+                                      iconUrl: skin.iconUrl,
+                                    })}
+                                    onError={(e) => {
+                                      e.currentTarget.onerror = null;
+                                      e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
+                                    }}
+                                    alt={displayName}
+                                    className="skin-card-2d-image"
+                                  />
                                 </div>
-                              </div>
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={t.addAlert}
-                              onClick={openAlertModal(
-                                skin,
-                                selectedGameForSkins.appid,
-                              )}
-                              style={{
-                                position: "absolute",
-                                top: "0.35rem",
-                                right: "0.35rem",
-                                width: "28px",
-                                height: "28px",
-                                borderRadius: "50%",
-                                border: "1px solid var(--border-subtle)",
-                                background: "rgba(15,23,42,0.9)",
-                                color: "var(--text-primary)",
-                                cursor: "pointer",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: "0.9rem",
-                              }}
-                            >
-                              🔔
-                            </button>
-                          </div>
-                        ))}
+                                <div className="skin-card-2d-footer">
+                                  <div className="skin-card-2d-name">
+                                    {displayName}
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div
@@ -1032,7 +1044,32 @@ export const App: React.FC = () => {
                         style={{ padding: "0.75rem" }}
                       >
                         <WebGLCanvas
-                          skins={inventories[selectedGameForSkins.appid].items}
+                          skins={(() => {
+                            const base =
+                              inventories[selectedGameForSkins.appid]?.items ?? [];
+                            const maxCards = 8;
+                            const sourceCount = Math.min(
+                              base.length || 1,
+                              maxCards,
+                            );
+                            const cards: SkinCard[] = [];
+                            for (let i = 0; i < maxCards; i += 1) {
+                              const src = base[i % sourceCount];
+                              if (src) {
+                                cards.push({
+                                  ...src,
+                                  name: `${src.name} #${i + 1}`,
+                                });
+                              } else {
+                                cards.push({
+                                  name: `Skin #${i + 1}`,
+                                  description: "",
+                                  iconUrl: PLACEHOLDER_SKIN_IMAGE,
+                                });
+                              }
+                            }
+                            return cards;
+                          })()}
                           onSkinSelect={setSelectedSkin}
                         />
                       </div>
@@ -1081,7 +1118,6 @@ export const App: React.FC = () => {
                 </div>
               </div>
             </article>
-              )}
             </>
           )}
         </section>
