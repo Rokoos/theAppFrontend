@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mockEncrypt, mockDecrypt } from '../utils/mockCrypto';
 import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from '../utils/skins';
+import { API_BASE_URL } from '../api';
 
 const MAX_TEXTURE_SIZE = 2048;
 const MAX_TOTAL_BUFFER_BYTES = 32 * 1024 * 1024;
@@ -40,9 +41,10 @@ const TEST_INVENTORY: SkinCard[] = [
 type Props = {
   skins?: SkinCard[];
   onSkinSelect?: (skin: SkinCard) => void;
+  maxCards?: number;
 };
 
-export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect }) => {
+export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCards }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const totalBufferBytesRef = useRef(0);
@@ -67,22 +69,25 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect }) => {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const baseItems = skins.length > 0 ? skins : (decryptedGallery ?? TEST_INVENTORY);
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container || baseItems.length === 0) return;
 
-    // Always render up to 8 cards per game for the gallery.
-    const maxCards = 8;
-    const sourceCount = Math.min(baseItems.length, maxCards);
+    // Always render up to 8 cards for gallery by default,
+    // but allow overriding (e.g. single-card modal view).
+    const limit = Math.max(1, maxCards ?? 8);
+    const sourceCount = Math.min(baseItems.length, limit);
     const items: SkinCard[] = [];
-    for (let i = 0; i < maxCards; i += 1) {
+    for (let i = 0; i < limit; i += 1) {
       const src = baseItems[i % sourceCount];
       items.push({
         ...src,
-        name: `${src.name} #${i + 1}`
+        name: `${src.name} #${i + 1}`,
       });
     }
+    const isSingleCard = items.length === 1;
 
     let renderer: THREE.WebGLRenderer | null = null;
     let animationId: number | null = null;
@@ -200,6 +205,15 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect }) => {
       const w = Math.max(260, container.clientWidth || 320);
       const cols = getColumns(w);
       let h: number;
+
+      // For single-card views (e.g. modal), keep height compact,
+      // closer to a normal 2D card aspect ratio.
+      const isSingle = items.length === 1;
+      if (isSingle) {
+        h = Math.max(260, Math.min(420, w * 0.9));
+        return { w, h };
+      }
+
       if (cols === 1) {
         // One narrow column: make canvas tall enough to fit all 8 cards
         h = Math.max(900, w * 5);
@@ -306,56 +320,74 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect }) => {
 
       const loadCardTexture = (skin: SkinCard) => {
         const primaryUrl = getSkinImage(skin.name, { iconUrl: skin.iconUrl });
+        const proxyPath = `/api/images/proxy?url=${encodeURIComponent(primaryUrl)}`;
+        const textureUrl =
+          primaryUrl.startsWith("http://") || primaryUrl.startsWith("https://")
+            ? `${API_BASE_URL.replace(/\/$/, "")}${proxyPath}`
+            : primaryUrl;
+
+        const addCardWithTexture = (texture: THREE.Texture) => {
+          if (cancelled) return;
+          texture.anisotropy = renderer ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 4;
+          if (texture.image && "width" in texture.image && texture.image.width > MAX_TEXTURE_SIZE) {
+            texture.image.width = MAX_TEXTURE_SIZE;
+          }
+          const geometry = new RoundedBoxGeometry(1, 1, CARD_THICKNESS, 5, 0.12);
+          const material = new THREE.MeshStandardMaterial({
+            map: texture,
+            roughness: 0.2,
+            metalness: 0.5,
+            transparent: true,
+          });
+          const card = new THREE.Mesh(geometry, material);
+          card.userData.skin = skin;
+          cardMeshes.push(card);
+          cardTargetScale.set(card, 1);
+          cardTargetQuat.set(card, card.quaternion.clone());
+          scene.add(card);
+          const edges = new THREE.EdgesGeometry(geometry, 28);
+          const line = new THREE.LineSegments(
+            edges,
+            new THREE.LineBasicMaterial({ color: BORDER_COLOR, transparent: true, opacity: BORDER_OPACITY }),
+          );
+          card.add(line);
+          texture.repeat.set(1 - CARD_PADDING * 2, 1 - CARD_PADDING * 2);
+          texture.offset.set(CARD_PADDING, CARD_PADDING);
+          cards.push({ mesh: card, border: line, texture, skin });
+          reflow();
+        };
 
         const loadWithFallback = (url: string, isFallback = false) => {
+          loader.setCrossOrigin("anonymous");
           loader.load(
             url,
             (texture: THREE.Texture) => {
-            texture.anisotropy = renderer ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 4;
-            if (texture.image && 'width' in texture.image && texture.image.width > MAX_TEXTURE_SIZE) {
-              texture.image.width = MAX_TEXTURE_SIZE;
-            }
-
-            // Create initial geometry; it will be resized by reflow().
-            const geometry = new RoundedBoxGeometry(1, 1, CARD_THICKNESS, 5, 0.12);
-            const material = new THREE.MeshStandardMaterial({
-              map: texture,
-              roughness: 0.2,
-              metalness: 0.5,
-              transparent: true
-            });
-            const card = new THREE.Mesh(geometry, material);
-            card.userData.skin = skin;
-            cardMeshes.push(card);
-            cardTargetScale.set(card, 1);
-            cardTargetQuat.set(card, card.quaternion.clone());
-            scene.add(card);
-
-            const edges = new THREE.EdgesGeometry(geometry, 28);
-            const line = new THREE.LineSegments(
-              edges,
-              new THREE.LineBasicMaterial({ color: BORDER_COLOR, transparent: true, opacity: BORDER_OPACITY })
-            );
-            card.add(line);
-
-            // Crop texture to create padding.
-            texture.repeat.set(1 - CARD_PADDING * 2, 1 - CARD_PADDING * 2);
-            texture.offset.set(CARD_PADDING, CARD_PADDING);
-
-            cards.push({ mesh: card, border: line, texture, skin });
-            // Reflow once we have some cards (safe to call multiple times)
-            reflow();
-          },
-          undefined,
-          () => {
-            if (!isFallback) {
+              addCardWithTexture(texture);
+            },
+            undefined,
+            () => {
+              if (isSingleCard && !isFallback) {
+                if (cancelled) return;
+                const size = 4;
+                const data = new Uint8Array(size * size * 4);
+                for (let i = 0; i < data.length; i += 4) {
+                  data[i] = 100;
+                  data[i + 1] = 100;
+                  data[i + 2] = 100;
+                  data[i + 3] = 255;
+                }
+                const fallbackTexture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+                fallbackTexture.needsUpdate = true;
+                addCardWithTexture(fallbackTexture);
+                return;
+              }
+              if (isFallback) return;
               loadWithFallback(PLACEHOLDER_SKIN_IMAGE, true);
-            }
-          }
+            },
           );
         };
 
-        loadWithFallback(primaryUrl);
+        loadWithFallback(textureUrl);
       };
 
       displayItems.forEach((skin) => {
@@ -390,6 +422,7 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect }) => {
     }
 
     return () => {
+      cancelled = true;
       if (typeof window !== 'undefined') {
         window.removeEventListener('resize', onResize);
       }

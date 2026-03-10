@@ -299,6 +299,20 @@ export const App: React.FC = () => {
     skin: SkinCard;
     gameId: number;
   } | null>(null);
+  const [skinModal, setSkinModal] = useState<
+    | {
+        source: "market";
+        item: MarketItem;
+        gameId: number;
+      }
+    | {
+        source: "inventory";
+        item: SkinCard;
+        gameId: number;
+      }
+    | null
+  >(null);
+  const [skinModalView, setSkinModalView] = useState<"2D" | "3D">("2D");
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
   const [alertCondition, setAlertCondition] = useState<"below" | "above">(
     "below",
@@ -311,6 +325,9 @@ export const App: React.FC = () => {
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [marketCurrency, setMarketCurrency] = useState<MarketCurrency>("USD");
   const marketSectionRef = useRef<HTMLElement | null>(null);
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const inventorySectionRef = useRef<HTMLElement | null>(null);
+  const inventoryScrollRunRef = useRef(0);
 
   const t = TEXT[locale];
 
@@ -397,6 +414,27 @@ export const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const openSkinModalFromMarket = (item: MarketItem) => {
+    if (!selectedGameForMarket) return;
+    setSkinModal({
+      source: "market",
+      item,
+      gameId: selectedGameForMarket.appid,
+    });
+    setSkinModalView("2D");
+  };
+
+  const openSkinModalFromInventory = (skin: SkinCard) => {
+    if (!selectedGameForSkins) return;
+    setSelectedSkin(skin);
+    setSkinModal({
+      source: "inventory",
+      item: skin,
+      gameId: selectedGameForSkins.appid,
+    });
+    setSkinModalView("2D");
+  };
+
   const openAlertModal =
     (skin: SkinCard, gameId: number) => (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -462,6 +500,7 @@ export const App: React.FC = () => {
   }, [user?.steamid, dashboardTab]);
 
   const MARKET_PAGE_SIZE = 50;
+  const INVENTORY_PAGE_SIZE = 20;
 
   const fetchMarketPrices = async (
     page: number,
@@ -485,11 +524,17 @@ export const App: React.FC = () => {
       );
       const rawItems = resp.data.items ?? [];
       const total = Number(resp.data.total) || 0;
-      const items = Array.isArray(rawItems) ? rawItems.slice(0, MARKET_PAGE_SIZE) : [];
+      const items = Array.isArray(rawItems)
+        ? rawItems.slice(0, MARKET_PAGE_SIZE)
+        : [];
       setMarketItems(items);
       setMarketTotal(total);
       setMarketPage(page);
-      if (page !== 1 && marketSectionRef.current && typeof window !== "undefined") {
+      if (
+        page !== 1 &&
+        marketSectionRef.current &&
+        typeof window !== "undefined"
+      ) {
         const el = marketSectionRef.current;
         const rect = el.getBoundingClientRect();
         const headerOffset = 80; // approximate header height
@@ -537,6 +582,21 @@ export const App: React.FC = () => {
     dashboardTab,
     marketCurrency,
   ]);
+
+  useEffect(() => {
+    setInventoryPage(1);
+  }, [selectedGameForSkins?.appid]);
+
+  useEffect(() => {
+    inventoryScrollRunRef.current += 1;
+    if (inventoryScrollRunRef.current === 1) return;
+    if (!inventorySectionRef.current || typeof window === "undefined") return;
+    const el = inventorySectionRef.current;
+    const rect = el.getBoundingClientRect();
+    const headerOffset = 80;
+    const targetTop = Math.max(window.scrollY + rect.top - headerOffset, 0);
+    window.scrollTo({ top: targetTop, behavior: "smooth" });
+  }, [inventoryPage]);
 
   const renderLoggedOut = () => (
     <main className="app-grid">
@@ -768,30 +828,50 @@ export const App: React.FC = () => {
                         <div
                           key={`${item.marketHashName}-${idx}`}
                           style={{ position: "relative" }}
+                          onClick={() => openSkinModalFromMarket(item)}
                         >
                           <div className="skin-card-2d">
                             <div className="skin-card-2d-image-wrap">
-                                <img
-                                  src={getSkinImage(item.marketHashName, {
-                                    appId: selectedGameForMarket.appid,
-                                  })}
-                                  onError={(e) => {
-                                    e.currentTarget.onerror = null;
-                                    e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
-                                  }}
-                                  alt={item.marketHashName}
-                                  className="skin-card-2d-image"
-                                />
+                              <img
+                                src={getSkinImage(item.marketHashName, {
+                                  appId: selectedGameForMarket.appid,
+                                })}
+                                onError={(e) => {
+                                  e.currentTarget.onerror = null;
+                                  e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
+                                }}
+                                alt={item.marketHashName}
+                                className="skin-card-2d-image"
+                              />
                             </div>
                             <div className="skin-card-2d-footer">
                               <div className="skin-card-2d-name">
                                 {item.marketHashName}
                               </div>
-                              <div className="status-text" style={{ marginTop: "0.2rem", fontSize: "0.75rem" }}>
+                              <div
+                                className="status-text"
+                                style={{
+                                  marginTop: "0.2rem",
+                                  fontSize: "0.75rem",
+                                }}
+                              >
                                 {item.suggestedPrice != null
-                                  ? formatPrice(item.suggestedPrice, marketCurrency)
+                                  ? formatPrice(
+                                      item.suggestedPrice,
+                                      marketCurrency,
+                                    )
                                   : item.minPrice != null
-                                    ? `${formatPrice(item.minPrice, marketCurrency)} – ${item.maxPrice != null ? formatPrice(item.maxPrice, marketCurrency) : "?"}`
+                                    ? `${formatPrice(
+                                        item.minPrice,
+                                        marketCurrency,
+                                      )} – ${
+                                        item.maxPrice != null
+                                          ? formatPrice(
+                                              item.maxPrice,
+                                              marketCurrency,
+                                            )
+                                          : "?"
+                                      }`
                                     : "—"}
                               </div>
                             </div>
@@ -829,76 +909,104 @@ export const App: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                    {marketTotal > 0 && (() => {
-                      const totalPages = Math.max(1, Math.ceil(marketTotal / MARKET_PAGE_SIZE));
-                      const showPages = (() => {
-                        if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
-                        const around: number[] = [];
-                        const add = (p: number) => { if (p >= 1 && p <= totalPages && !around.includes(p)) around.push(p); };
-                        add(1);
-                        add(marketPage - 1);
-                        add(marketPage);
-                        add(marketPage + 1);
-                        add(totalPages);
-                        around.sort((a, b) => a - b);
-                        const out: (number | "…")[] = [];
-                        for (let i = 0; i < around.length; i++) {
-                          if (i > 0 && around[i]! > around[i - 1]! + 1) out.push("…");
-                          out.push(around[i]!);
-                        }
-                        return out;
-                      })();
-                      return (
-                        <div
-                          style={{
-                            marginTop: "0.75rem",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "0.35rem",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="button-secondary"
-                            disabled={loadingMarket || marketPage <= 1}
-                            onClick={() => {
-                              const p = marketPage - 1;
-                              if (p >= 1) void fetchMarketPrices(p);
+                    {marketTotal > 0 &&
+                      (() => {
+                        const totalPages = Math.max(
+                          1,
+                          Math.ceil(marketTotal / MARKET_PAGE_SIZE),
+                        );
+                        const showPages = (() => {
+                          if (totalPages <= 7)
+                            return Array.from(
+                              { length: totalPages },
+                              (_, i) => i + 1,
+                            );
+                          const around: number[] = [];
+                          const add = (p: number) => {
+                            if (
+                              p >= 1 &&
+                              p <= totalPages &&
+                              !around.includes(p)
+                            )
+                              around.push(p);
+                          };
+                          add(1);
+                          add(marketPage - 1);
+                          add(marketPage);
+                          add(marketPage + 1);
+                          add(totalPages);
+                          around.sort((a, b) => a - b);
+                          const out: (number | "…")[] = [];
+                          for (let i = 0; i < around.length; i++) {
+                            if (i > 0 && around[i]! > around[i - 1]! + 1)
+                              out.push("…");
+                            out.push(around[i]!);
+                          }
+                          return out;
+                        })();
+                        return (
+                          <div
+                            style={{
+                              marginTop: "0.75rem",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "0.35rem",
+                              flexWrap: "wrap",
                             }}
                           >
-                            {t.prevPage}
-                          </button>
-                          {showPages.map((p, i) =>
-                            p === "…" ? (
-                              <span key={`ellipsis-${i}`} className="status-text" style={{ padding: "0 0.25rem" }}>…</span>
-                            ) : (
-                              <button
-                                key={p}
-                                type="button"
-                                className={marketPage === p ? "button-primary" : "button-secondary"}
-                                disabled={loadingMarket}
-                                onClick={() => void fetchMarketPrices(p)}
-                              >
-                                {p}
-                              </button>
-                            ),
-                          )}
-                          <button
-                            type="button"
-                            className="button-secondary"
-                            disabled={loadingMarket || marketPage >= totalPages}
-                            onClick={() => {
-                              const p = marketPage + 1;
-                              if (p <= totalPages) void fetchMarketPrices(p);
-                            }}
-                          >
-                            {t.nextPage}
-                          </button>
-                        </div>
-                      );
-                    })()}
+                            <button
+                              type="button"
+                              className="button-secondary"
+                              disabled={loadingMarket || marketPage <= 1}
+                              onClick={() => {
+                                const p = marketPage - 1;
+                                if (p >= 1) void fetchMarketPrices(p);
+                              }}
+                            >
+                              {t.prevPage}
+                            </button>
+                            {showPages.map((p, i) =>
+                              p === "…" ? (
+                                <span
+                                  key={`ellipsis-${i}`}
+                                  className="status-text"
+                                  style={{ padding: "0 0.25rem" }}
+                                >
+                                  …
+                                </span>
+                              ) : (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  className={
+                                    marketPage === p
+                                      ? "button-primary"
+                                      : "button-secondary"
+                                  }
+                                  disabled={loadingMarket}
+                                  onClick={() => void fetchMarketPrices(p)}
+                                >
+                                  {p}
+                                </button>
+                              ),
+                            )}
+                            <button
+                              type="button"
+                              className="button-secondary"
+                              disabled={
+                                loadingMarket || marketPage >= totalPages
+                              }
+                              onClick={() => {
+                                const p = marketPage + 1;
+                                if (p <= totalPages) void fetchMarketPrices(p);
+                              }}
+                            >
+                              {t.nextPage}
+                            </button>
+                          </div>
+                        );
+                      })()}
                   </>
                 )}
               </div>
@@ -934,190 +1042,282 @@ export const App: React.FC = () => {
                   );
                 })}
               </div>
-              <article className="card">
-              <div className="card-inner">
-                <div className="card-header">
-                  <div className="card-title-block">
-                    <h2 className="card-title">{t.skinsGalleryTitle}</h2>
-                    <p
-                      className="card-kicker"
-                      style={{ marginTop: "0.15rem", marginBottom: 0 }}
-                    >
-                      {selectedGameForSkins.name}
-                    </p>
-                    {/* <p className="card-kicker">{t.viewSwitcherHint}</p> */}
-                  </div>
-                  <div className="view-switcher">
-                    <button
-                      type="button"
-                      className={`view-switcher-toggle${viewMode === "2D" ? " view-switcher-toggle--active" : ""}`}
-                      onClick={() => setViewMode("2D")}
-                    >
-                      <span className="view-switcher-icon">▦</span>
-                      <span className="view-switcher-label">{t.view2D}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`view-switcher-toggle${viewMode === "3D" ? " view-switcher-toggle--active" : ""}`}
-                      // onClick={() => setViewMode("3D")}
-                    >
-                      <span className="view-switcher-icon">⬢</span>
-                      <span className="view-switcher-label">{t.view3D}</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="card-body">
-                  <div className="gallery-view" key={viewMode}>
-                    {viewMode === "2D" ? (
-                      <div className="skin-grid-2d">
-                        {(() => {
-                          const base =
-                            inventories[selectedGameForSkins.appid]?.items ?? [];
-                          const maxCards = 8;
-                          const sourceCount = Math.min(
-                            base.length || 1,
-                            maxCards,
-                          );
-                          const cards: SkinCard[] = [];
-                          for (let i = 0; i < maxCards; i += 1) {
-                            const src = base[i % sourceCount];
-                            if (src) {
-                              cards.push({
-                                ...src,
-                                name: `${src.name} #${i + 1}`,
-                              });
-                            } else {
-                              cards.push({
-                                name: `Skin #${i + 1}`,
-                                description: "",
-                                iconUrl: PLACEHOLDER_SKIN_IMAGE,
-                              });
-                            }
-                          }
-                          return cards;
-                        })().map((skin, idx) => {
-                          let displayName = skin.name;
-                          const gameName = selectedGameForSkins.name;
-                          if (gameName) {
-                            displayName = displayName
-                              .replace(new RegExp(`\\s*–\\s*${gameName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "gi"), "")
-                              .replace(new RegExp(`\\s*\\(\\s*${gameName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\)`, "gi"), "")
-                              .trim();
-                          }
-                          return (
-                            <div
-                              key={`${skin.name}-${idx}`}
-                              style={{ position: "relative" }}
-                            >
-                              <button
-                                type="button"
-                                className="skin-card-2d"
-                                onClick={() => setSelectedSkin(skin)}
-                              >
-                                <div className="skin-card-2d-image-wrap">
-                                  <img
-                                    src={getSkinImage(skin.name, {
-                                      appId: selectedGameForSkins.appid,
-                                      iconUrl: skin.iconUrl,
-                                    })}
-                                    onError={(e) => {
-                                      e.currentTarget.onerror = null;
-                                      e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
-                                    }}
-                                    alt={displayName}
-                                    className="skin-card-2d-image"
-                                  />
-                                </div>
-                                <div className="skin-card-2d-footer">
-                                  <div className="skin-card-2d-name">
-                                    {displayName}
-                                  </div>
-                                </div>
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div
-                        className="canvas-shell"
-                        style={{ padding: "0.75rem" }}
+              <article className="card" ref={inventorySectionRef}>
+                <div className="card-inner">
+                  <div className="card-header">
+                    <div className="card-title-block">
+                      <h2 className="card-title">{t.skinsGalleryTitle}</h2>
+                      <p
+                        className="card-kicker"
+                        style={{ marginTop: "0.15rem", marginBottom: 0 }}
                       >
-                        <WebGLCanvas
-                          skins={(() => {
-                            const base =
-                              inventories[selectedGameForSkins.appid]?.items ?? [];
-                            const maxCards = 8;
-                            const sourceCount = Math.min(
-                              base.length || 1,
-                              maxCards,
-                            );
-                            const cards: SkinCard[] = [];
-                            for (let i = 0; i < maxCards; i += 1) {
-                              const src = base[i % sourceCount];
-                              if (src) {
-                                cards.push({
-                                  ...src,
-                                  name: `${src.name} #${i + 1}`,
-                                });
-                              } else {
+                        {selectedGameForSkins.name}
+                      </p>
+                      {/* <p className="card-kicker">{t.viewSwitcherHint}</p> */}
+                    </div>
+                  </div>
+                  <div className="card-body">
+                    <div className="gallery-view" key={viewMode}>
+                      {viewMode === "2D" ? (
+                        <div className="skin-grid-2d">
+                          {(() => {
+                            const rawBase =
+                              inventories[selectedGameForSkins.appid]?.items ??
+                              [];
+                            const realBase = rawBase.filter((item) => {
+                              const desc = item.description || "";
+                              const isMockItem =
+                                (item as any).isMock ||
+                                /no live Steam data/i.test(desc);
+                              return !isMockItem;
+                            });
+                            const base = realBase.length ? realBase : [];
+                            if (!base.length) {
+                              const maxCards = 8;
+                              const cards: SkinCard[] = [];
+                              for (let i = 0; i < maxCards; i += 1) {
                                 cards.push({
                                   name: `Skin #${i + 1}`,
                                   description: "",
                                   iconUrl: PLACEHOLDER_SKIN_IMAGE,
                                 });
                               }
+                              return cards;
                             }
-                            return cards;
+                            const start =
+                              (inventoryPage - 1) * INVENTORY_PAGE_SIZE;
+                            const end = start + INVENTORY_PAGE_SIZE;
+                            return base.slice(start, end);
+                          })().map((skin, idx) => {
+                            let displayName = skin.name;
+                            const gameName = selectedGameForSkins.name;
+                            if (gameName) {
+                              displayName = displayName
+                                .replace(
+                                  new RegExp(
+                                    `\\s*–\\s*${gameName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+                                    "gi",
+                                  ),
+                                  "",
+                                )
+                                .replace(
+                                  new RegExp(
+                                    `\\s*\\(\\s*${gameName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\)`,
+                                    "gi",
+                                  ),
+                                  "",
+                                )
+                                .trim();
+                            }
+                            return (
+                              <div
+                                key={`${skin.name}-${idx}`}
+                                style={{ position: "relative" }}
+                              >
+                                <button
+                                  type="button"
+                                  className="skin-card-2d"
+                                onClick={() => openSkinModalFromInventory(skin)}
+                                >
+                                  <div className="skin-card-2d-image-wrap">
+                                    <img
+                                      src={getSkinImage(skin.name, {
+                                        appId: selectedGameForSkins.appid,
+                                        iconUrl: skin.iconUrl,
+                                      })}
+                                      onError={(e) => {
+                                        e.currentTarget.onerror = null;
+                                        e.currentTarget.src =
+                                          PLACEHOLDER_SKIN_IMAGE;
+                                      }}
+                                      alt={displayName}
+                                      className="skin-card-2d-image"
+                                    />
+                                  </div>
+                                  <div className="skin-card-2d-footer">
+                                    <div className="skin-card-2d-name">
+                                      {displayName}
+                                    </div>
+                                  </div>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div
+                          className="canvas-shell"
+                          style={{ padding: "0.75rem" }}
+                        >
+                          <WebGLCanvas
+                            skins={(() => {
+                              const rawBase =
+                                inventories[selectedGameForSkins.appid]
+                                  ?.items ?? [];
+                              const realBase = rawBase.filter((item) => {
+                                const desc = item.description || "";
+                                const isMockItem =
+                                  (item as any).isMock ||
+                                  /no live Steam data/i.test(desc);
+                                return !isMockItem;
+                              });
+                              const base = realBase.length ? realBase : [];
+                              if (!base.length) {
+                                const maxCards = 8;
+                                const cards: SkinCard[] = [];
+                                for (let i = 0; i < maxCards; i += 1) {
+                                  cards.push({
+                                    name: `Skin #${i + 1}`,
+                                    description: "",
+                                    iconUrl: PLACEHOLDER_SKIN_IMAGE,
+                                  });
+                                }
+                                return cards;
+                              }
+                              const start =
+                                (inventoryPage - 1) * INVENTORY_PAGE_SIZE;
+                              const end = start + INVENTORY_PAGE_SIZE;
+                              return base.slice(start, end);
+                            })()}
+                            onSkinSelect={setSelectedSkin}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {(() => {
+                      const rawBase =
+                        inventories[selectedGameForSkins.appid]?.items ?? [];
+                      const realBase = rawBase.filter((item) => {
+                        const desc = item.description || "";
+                        const isMockItem =
+                          (item as any).isMock ||
+                          /no live Steam data/i.test(desc);
+                        return !isMockItem;
+                      });
+                      const total = realBase.length;
+                      if (!total) return null;
+                      const totalPages = Math.max(
+                        1,
+                        Math.ceil(total / INVENTORY_PAGE_SIZE),
+                      );
+                      if (totalPages <= 1) return null;
+
+                      const pages: (number | "…")[] = [];
+                      const maxButtons = 7;
+                      if (totalPages <= maxButtons) {
+                        for (let p = 1; p <= totalPages; p += 1) {
+                          pages.push(p);
+                        }
+                      } else {
+                        const addPage = (p: number | "…") => {
+                          if (pages[pages.length - 1] !== p) pages.push(p);
+                        };
+                        addPage(1);
+                        const start = Math.max(2, inventoryPage - 1);
+                        const end = Math.min(totalPages - 1, inventoryPage + 1);
+                        if (start > 2) addPage("…");
+                        for (let p = start; p <= end; p += 1) addPage(p);
+                        if (end < totalPages - 1) addPage("…");
+                        addPage(totalPages);
+                      }
+
+                      return (
+                        <div className="pagination-row">
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            disabled={inventoryPage <= 1}
+                            onClick={() =>
+                              setInventoryPage((p) => Math.max(1, p - 1))
+                            }
+                          >
+                            {t.prevPage}
+                          </button>
+                          {pages.map((p, idx) =>
+                            p === "…" ? (
+                              <span
+                                key={`ellipsis-${idx}`}
+                                className="status-text"
+                                style={{ padding: "0 0.25rem" }}
+                              >
+                                …
+                              </span>
+                            ) : (
+                              <button
+                                key={p}
+                                type="button"
+                                className={
+                                  inventoryPage === p
+                                    ? "button-primary"
+                                    : "button-secondary"
+                                }
+                                onClick={() => setInventoryPage(p)}
+                              >
+                                {p}
+                              </button>
+                            ),
+                          )}
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            disabled={inventoryPage >= totalPages}
+                            onClick={() =>
+                              setInventoryPage((p) =>
+                                Math.min(totalPages, p + 1),
+                              )
+                            }
+                          >
+                            {t.nextPage}
+                          </button>
+                        </div>
+                      );
+                    })()}
+
+                    {selectedSkin && (
+                      <div
+                        style={{
+                          marginTop: "0.85rem",
+                          fontSize: "0.85rem",
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        <div style={{ fontWeight: 650 }}>
+                          {selectedSkin.name}
+                        </div>
+                        <div
+                          style={{
+                            whiteSpace: "pre-line",
+                            marginTop: "0.25rem",
+                            color: "var(--text-muted)",
+                          }}
+                        >
+                          {(() => {
+                            const desc = selectedSkin.description;
+                            const isMockFromApi =
+                              selectedSkin.isMock &&
+                              selectedSkin.mockIndex != null &&
+                              selectedGameForSkins;
+                            const isMockFromContent =
+                              desc.includes("no live Steam data") &&
+                              selectedGameForSkins;
+                            const matchIndex = desc.match(
+                              /#(\d+)\s*\(no live Steam/,
+                            );
+                            const index =
+                              selectedSkin.mockIndex ??
+                              (matchIndex ? Number(matchIndex[1]) : 1);
+                            const appid = selectedGameForSkins?.appid ?? 0;
+                            if (isMockFromApi || isMockFromContent)
+                              return t.debugMockDescription(appid, index);
+                            return desc;
                           })()}
-                          onSkinSelect={setSelectedSkin}
-                        />
+                        </div>
                       </div>
                     )}
                   </div>
-
-                  {selectedSkin && (
-                    <div
-                      style={{
-                        marginTop: "0.85rem",
-                        fontSize: "0.85rem",
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      <div style={{ fontWeight: 650 }}>{selectedSkin.name}</div>
-                      <div
-                        style={{
-                          whiteSpace: "pre-line",
-                          marginTop: "0.25rem",
-                          color: "var(--text-muted)",
-                        }}
-                      >
-                        {(() => {
-                          const desc = selectedSkin.description;
-                          const isMockFromApi =
-                            selectedSkin.isMock &&
-                            selectedSkin.mockIndex != null &&
-                            selectedGameForSkins;
-                          const isMockFromContent =
-                            desc.includes("no live Steam data") &&
-                            selectedGameForSkins;
-                          const matchIndex = desc.match(
-                            /#(\d+)\s*\(no live Steam/,
-                          );
-                          const index =
-                            selectedSkin.mockIndex ??
-                            (matchIndex ? Number(matchIndex[1]) : 1);
-                          const appid = selectedGameForSkins?.appid ?? 0;
-                          if (isMockFromApi || isMockFromContent)
-                            return t.debugMockDescription(appid, index);
-                          return desc;
-                        })()}
-                      </div>
-                    </div>
-                  )}
                 </div>
-              </div>
-            </article>
+              </article>
             </>
           )}
         </section>
@@ -1155,6 +1355,190 @@ export const App: React.FC = () => {
       </header>
 
       {user ? renderLoggedIn() : renderLoggedOut()}
+
+      {skinModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 120,
+          }}
+          onClick={() => setSkinModal(null)}
+        >
+          <div
+            className="card"
+            style={{ maxWidth: 640, width: "100%", margin: "0 1rem" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="card-inner">
+              <div
+                className="card-header"
+                style={{ justifyContent: "space-between", alignItems: "center" }}
+              >
+                <div className="card-title-block">
+                  <h2 className="card-title">
+                    {skinModal.source === "market"
+                      ? skinModal.item.marketHashName
+                      : skinModal.item.name}
+                  </h2>
+                  {skinModal.source === "market" && (
+                    <p className="card-kicker">
+                      {skinModal.item.suggestedPrice != null
+                        ? formatPrice(
+                            skinModal.item.suggestedPrice,
+                            marketCurrency,
+                          )
+                        : skinModal.item.minPrice != null
+                          ? `${formatPrice(
+                              skinModal.item.minPrice,
+                              marketCurrency,
+                            )} – ${
+                              skinModal.item.maxPrice != null
+                                ? formatPrice(
+                                    skinModal.item.maxPrice,
+                                    marketCurrency,
+                                  )
+                                : "?"
+                            }`
+                          : "—"}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  className="button-secondary"
+                  onClick={() => setSkinModal(null)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="card-body">
+                <div
+                  className="view-switcher"
+                  style={{ marginBottom: "0.75rem", justifyContent: "flex-start" }}
+                >
+                  <button
+                    type="button"
+                    className={`view-switcher-toggle${skinModalView === "2D" ? " view-switcher-toggle--active" : ""}`}
+                    onClick={() => setSkinModalView("2D")}
+                  >
+                    <span className="view-switcher-icon">▦</span>
+                    <span className="view-switcher-label">{t.view2D}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`view-switcher-toggle${skinModalView === "3D" ? " view-switcher-toggle--active" : ""}`}
+                    onClick={() => setSkinModalView("3D")}
+                  >
+                    <span className="view-switcher-icon">⬢</span>
+                    <span className="view-switcher-label">{t.view3D}</span>
+                  </button>
+                </div>
+
+                {skinModalView === "2D" ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      marginBottom: "0.75rem",
+                    }}
+                  >
+                    <div className="skin-card-2d" style={{ maxWidth: 260 }}>
+                      <div className="skin-card-2d-image-wrap">
+                        <img
+                          src={getSkinImage(
+                            skinModal.source === "market"
+                              ? skinModal.item.marketHashName
+                              : skinModal.item.name,
+                            {
+                              appId: skinModal.gameId,
+                              iconUrl:
+                                skinModal.source === "inventory"
+                                  ? skinModal.item.iconUrl
+                                  : undefined,
+                            },
+                          )}
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
+                          }}
+                          alt={
+                            skinModal.source === "market"
+                              ? skinModal.item.marketHashName
+                              : skinModal.item.name
+                          }
+                          className="skin-card-2d-image"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="canvas-shell"
+                    style={{ padding: "0.75rem", minHeight: 260 }}
+                  >
+                    <WebGLCanvas
+                      skins={[
+                        skinModal.source === "market"
+                          ? {
+                              name: skinModal.item.marketHashName,
+                              description: "",
+                              iconUrl: getSkinImage(
+                                skinModal.item.marketHashName,
+                                { appId: skinModal.gameId },
+                              ),
+                            }
+                          : skinModal.item,
+                      ]}
+                      maxCards={1}
+                    />
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: "0.75rem",
+                  }}
+                >
+                  <button
+                    type="button"
+                    aria-label={t.addAlert}
+                    className="button-primary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!skinModal) return;
+                      const name =
+                        skinModal.source === "market"
+                          ? skinModal.item.marketHashName
+                          : skinModal.item.name;
+                      setAlertModal({
+                        skin: {
+                          name,
+                          description: "",
+                          iconUrl: "/assets/test-skin.png",
+                        },
+                        gameId: skinModal.gameId,
+                      });
+                      setAlertTargetPrice("");
+                      setAlertCondition("below");
+                      setSkinModal(null);
+                    }}
+                  >
+                    {t.addAlert}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {alertModal && (
         <div
