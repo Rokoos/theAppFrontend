@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { mockEncrypt, mockDecrypt } from '../utils/mockCrypto';
 import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from '../utils/skins';
 import { API_BASE_URL } from '../api';
@@ -18,6 +19,10 @@ const CORNER_RADIUS_REL = 0.08;
 const BORDER_COLOR = 0xd2d9e6;
 const BORDER_OPACITY = 0.85;
 
+// HDR environment for realistic metallic reflections (studio lighting)
+const HDR_ENV_URL =
+  'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_08_1k.hdr';
+
 export type SkinCard = {
   name: string;
   description: string;
@@ -25,7 +30,44 @@ export type SkinCard = {
   gameLabel?: string;
   isMock?: boolean;
   mockIndex?: number;
+  /** Float/wear 0–1: lower = Factory New (shinier), higher = Battle-Scarred (duller). Used for roughness. */
+  wear?: number;
 };
+
+/** Lower wear = shinier (lower roughness). CS2 float 0–1. */
+function getRoughnessFromWear(wear: number | undefined): number {
+  if (wear == null || Number.isNaN(wear)) return 0.22;
+  const c = Math.max(0, Math.min(1, wear));
+  return 0.1 + c * 0.55;
+}
+
+/**
+ * Apply skin material to all meshes in a loaded GLTF scene (e.g. weapon model).
+ * Use with GLTFLoader: after load, call applySkinMaterialToGltf(gltf.scene, skinTexture, wear)
+ * so the weapon model meshes use MeshStandardMaterial with metalness 1 and roughness from wear.
+ */
+export function applySkinMaterialToGltf(
+  scene: THREE.Group,
+  mapTexture: THREE.Texture,
+  wear?: number
+): void {
+  const roughness = getRoughnessFromWear(wear);
+  scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const mesh = object as THREE.Mesh;
+    if (!mesh.geometry) return;
+    const oldMat = mesh.material;
+    if (Array.isArray(oldMat)) oldMat.forEach((m) => m.dispose());
+    else if (oldMat && typeof (oldMat as THREE.Material).dispose === 'function')
+      (oldMat as THREE.Material).dispose();
+    mesh.material = new THREE.MeshStandardMaterial({
+      map: mapTexture,
+      metalness: 1.0,
+      roughness,
+      envMapIntensity: 1,
+    });
+  });
+}
 
 const TEST_INVENTORY: SkinCard[] = [
   { name: 'Skin #1', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'CS2' },
@@ -93,7 +135,7 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
     let animationId: number | null = null;
     let camera: THREE.PerspectiveCamera | null = null;
     const scene = new THREE.Scene();
-    // Slightly darker than the parent canvas-shell background so cards stand out
+    // Default background; replaced by HDR env when loaded
     scene.background = new THREE.Color('#020314');
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -192,38 +234,21 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const getColumns = (w: number) => {
-      // responsive layout:
-      // < 350px: 1 column
-      // 350–599px: 2 columns
-      // >= 600px: 3 columns
-      if (w < 350) return 1;
-      if (w < 600) return 2;
+      // Keep 1 column until wider, so layout matches narrow screens (e.g. at 455px).
+      // < 600px: 1 column
+      // 600–899px: 2 columns
+      // >= 900px: 3 columns
+      if (w < 600) return 1;
+      if (w < 900) return 2;
       return 3;
     };
 
+    // Fixed aspect ratio (width : height = 8 : 5), same as at 700px, at all screen widths.
+    const CANVAS_ASPECT = 5 / 8; // height / width
+
     const getCanvasSize = () => {
       const w = Math.max(260, container.clientWidth || 320);
-      const cols = getColumns(w);
-      let h: number;
-
-      // For single-card views (e.g. modal), keep height compact,
-      // closer to a normal 2D card aspect ratio.
-      const isSingle = items.length === 1;
-      if (isSingle) {
-        h = Math.max(260, Math.min(420, w * 0.9));
-        return { w, h };
-      }
-
-      if (cols === 1) {
-        // One narrow column: make canvas tall enough to fit all 8 cards
-        h = Math.max(900, w * 5);
-      } else if (cols === 2) {
-        // Two columns: medium height
-        h = Math.max(520, Math.min(900, w * 1.6));
-      } else {
-        // Three columns on larger screens
-        h = Math.max(420, Math.min(800, w * 1.1));
-      }
+      const h = Math.max(260, Math.round(w * CANVAS_ASPECT));
       return { w, h };
     };
 
@@ -300,6 +325,11 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
     const init = () => {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       const { w, h } = getCanvasSize();
       renderer.setSize(w, h);
 
@@ -312,7 +342,37 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
       scene.add(ambient);
       const dir = new THREE.DirectionalLight(0xffffff, 1.3);
       dir.position.set(5, 7, 6);
+      dir.castShadow = true;
+      dir.shadow.mapSize.set(1024, 1024);
+      dir.shadow.camera.near = 0.5;
+      dir.shadow.camera.far = 20;
+      dir.shadow.camera.left = dir.shadow.camera.bottom = -5;
+      dir.shadow.camera.right = dir.shadow.camera.top = 5;
+      dir.shadow.bias = -0.0001;
       scene.add(dir);
+
+      // HDR environment map for realistic metallic/glossy reflections on skins
+      const applyEnvMap = (envMap: THREE.Texture) => {
+        if (cancelled) {
+          envMap.dispose();
+          return;
+        }
+        envMap.mapping = THREE.EquirectangularReflectionMapping;
+        scene.environment = envMap;
+        scene.background = envMap;
+        scene.backgroundBlurriness = 0.5;
+        scene.backgroundIntensity = 0.45;
+      };
+      const rgbeLoader = new RGBELoader();
+      rgbeLoader.load(
+        HDR_ENV_URL,
+        applyEnvMap,
+        undefined,
+        () => {
+          // Fallback: try local asset (place studio_small_08_1k.hdr in public/assets/)
+          rgbeLoader.load('/assets/studio_small_08_1k.hdr', applyEnvMap, undefined, () => {});
+        }
+      );
 
       const loader = new THREE.TextureLoader();
       const maxItems = Math.min(items.length, 8);
@@ -333,13 +393,16 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
             texture.image.width = MAX_TEXTURE_SIZE;
           }
           const geometry = new RoundedBoxGeometry(1, 1, CARD_THICKNESS, 5, 0.12);
+          const roughness = getRoughnessFromWear(skin.wear);
           const material = new THREE.MeshStandardMaterial({
             map: texture,
-            roughness: 0.2,
-            metalness: 0.5,
+            metalness: 1.0,
+            roughness,
             transparent: true,
           });
           const card = new THREE.Mesh(geometry, material);
+          card.castShadow = true;
+          card.receiveShadow = true;
           card.userData.skin = skin;
           cardMeshes.push(card);
           cardTargetScale.set(card, 1);
@@ -409,10 +472,15 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
       animate();
     };
 
+    let resizeObserver: ResizeObserver | null = null;
     try {
       init();
       if (typeof window !== 'undefined') {
         window.addEventListener('resize', onResize);
+        if (container && typeof ResizeObserver !== 'undefined') {
+          resizeObserver = new ResizeObserver(() => onResize());
+          resizeObserver.observe(container);
+        }
       }
       canvas.addEventListener('pointermove', handlePointerMove);
       canvas.addEventListener('pointerleave', handlePointerLeave);
@@ -423,6 +491,9 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
 
     return () => {
       cancelled = true;
+      if (resizeObserver && container) {
+        resizeObserver.disconnect();
+      }
       if (typeof window !== 'undefined') {
         window.removeEventListener('resize', onResize);
       }
@@ -449,10 +520,29 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
   }, [skins, decryptedGallery, onSkinSelect]);
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '100%', minHeight: 320 }}>
+    <div
+      ref={containerRef}
+      style={{
+        position: 'relative',
+        width: '100%',
+        minWidth: '100%',
+        aspectRatio: '8 / 5',
+        flex: '1 1 100%',
+        display: 'block',
+      }}
+    >
       <canvas
         ref={canvasRef}
-        style={{ display: 'block', width: '100%', height: 'auto', minHeight: 280, borderRadius: 12, background: '#020617' }}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: '100%',
+          height: '100%',
+          display: 'block',
+          borderRadius: 12,
+          background: '#020617',
+        }}
       />
       {hoverLabel && (
         <div

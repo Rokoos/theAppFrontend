@@ -301,6 +301,54 @@ body {
 
 .gallery-view {
   animation: gallery-fade-in 0.18s ease-out;
+  min-height: 0;
+}
+
+/* Keep 3D canvas area inside card at narrow widths so it isn't pushed down */
+@media (max-width: 615px) {
+  /* Section that contains market + inventory: cap height so inventory card stays in view */
+  .section-with-inventory {
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* Market card doesn't shrink */
+  .section-with-inventory > article.card:first-of-type {
+    flex-shrink: 0;
+  }
+  /* Inventory card (the one with .canvas-shell) takes remaining space */
+  .section-with-inventory .card:has(.canvas-shell) {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .section-with-inventory .card:has(.canvas-shell) .card-inner {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .section-with-inventory .card:has(.canvas-shell) .card-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .section-with-inventory .card:has(.canvas-shell) .gallery-view {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .section-with-inventory .card:has(.canvas-shell) .canvas-shell {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: 100%;
+  }
 }
 
 @keyframes gallery-fade-in {
@@ -669,6 +717,11 @@ body {
 .canvas-shell {
   border-radius: calc(var(--radius-xl) - 4px);
   border: 1px solid rgba(15, 23, 42, 0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
   background:
     radial-gradient(
       circle at top left,
@@ -684,9 +737,25 @@ body {
   overflow: hidden;
 }
 
+@media (max-width: 615px) {
+  .canvas-shell {
+    max-height: 100%;
+  }
+}
+
+/* Take full width of shell so canvas never shrinks or shifts left at 455px+ */
+.canvas-shell > div {
+  min-width: 100%;
+  width: 100%;
+  flex: 1 1 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
 .canvas-shell canvas {
   display: block;
   width: 100%;
+  height: 100%;
   max-width: 100%;
 }
 

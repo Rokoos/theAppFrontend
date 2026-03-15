@@ -53,6 +53,7 @@ type MarketItem = {
 };
 
 type MarketCurrency = "USD" | "EUR" | "PLN";
+type MarketSource = "all" | "skinport" | "dmarket";
 
 const CURRENCY_SYMBOLS: Record<MarketCurrency, string> = {
   USD: "$",
@@ -94,6 +95,7 @@ const TEXT: Record<
     footerRight: string;
     errorLoadGames: string;
     errorStartLogin: string;
+    errorConnection: string;
     gameNotOwned: string;
     noSkinsForGame: (gameName: string) => string;
     emptyVaultTitle: string;
@@ -114,9 +116,13 @@ const TEXT: Record<
     alertLimitReached: string;
     watchlistEmpty: string;
     marketPrices: string;
+    marketSourceAll: string;
+    marketSourceSkinport: string;
+    marketSourceDmarket: string;
     marketLoading: string;
     marketEmpty: string;
     yourInventory: string;
+    inventoryLoading: string;
     cancel: string;
     targetPriceLabel: (currency: string) => string;
     currencyUsd: string;
@@ -162,6 +168,7 @@ const TEXT: Record<
     footerRight: "Created by Rokus Web Solutions.",
     errorLoadGames: "Failed to load games",
     errorStartLogin: "Failed to start Steam login",
+    errorConnection: "Could not reach server. Is the backend running?",
     gameNotOwned: "Game not found in the library",
     noSkinsForGame: (gameName) => `No skins found for ${gameName}`,
     emptyVaultTitle: "Empty Vault",
@@ -184,10 +191,14 @@ const TEXT: Record<
     addAlert: "Add alert",
     alertLimitReached: "Limit reached. Upgrade to Pro.",
     watchlistEmpty: "No alerts yet. Add one from the Skins tab.",
-    marketPrices: "Market prices (SkinPort)",
+    marketPrices: "Market prices (SkinPort & DMarket)",
+    marketSourceAll: "All",
+    marketSourceSkinport: "SkinPort",
+    marketSourceDmarket: "DMarket",
     marketLoading: "Loading market…",
     marketEmpty: "No market data for this game.",
     yourInventory: "Your inventory",
+    inventoryLoading: "Loading skins…",
     cancel: "Cancel",
     targetPriceLabel: (currency) => `Target price (${currency})`,
     currencyUsd: "USD ($)",
@@ -232,6 +243,7 @@ const TEXT: Record<
     footerRight: "Utworzone przez Rokus Web Solutions",
     errorLoadGames: "Nie udało się załadować listy gier",
     errorStartLogin: "Nie udało się rozpocząć logowania przez Steam",
+    errorConnection: "Nie można połączyć z serwerem. Czy backend jest uruchomiony?",
     gameNotOwned: "Gra nie została znaleziona w bibliotece",
     noSkinsForGame: (gameName) => `Nie znaleziono skinów dla gry ${gameName}`,
     emptyVaultTitle: "Pusty skarbiec",
@@ -254,10 +266,14 @@ const TEXT: Record<
     addAlert: "Dodaj alert",
     alertLimitReached: "Limit osiągnięty. Przejdź na Pro.",
     watchlistEmpty: "Brak alertów. Dodaj z zakładki Skiny.",
-    marketPrices: "Ceny rynkowe (SkinPort)",
+    marketPrices: "Ceny rynkowe (SkinPort & DMarket)",
+    marketSourceAll: "Wszystkie",
+    marketSourceSkinport: "SkinPort",
+    marketSourceDmarket: "DMarket",
     marketLoading: "Ładowanie rynku…",
     marketEmpty: "Brak danych rynkowych dla tej gry.",
     yourInventory: "Twój ekwipunek",
+    inventoryLoading: "Ładowanie skinów…",
     cancel: "Anuluj",
     targetPriceLabel: (currency) => `Cena docelowa (${currency})`,
     currencyUsd: "USD ($)",
@@ -285,6 +301,7 @@ export const App: React.FC = () => {
   const [inventories, setInventories] = useState<Record<number, GameInventory>>(
     {},
   );
+  const [loadingInventories, setLoadingInventories] = useState(false);
   const [ownsAnyTarget, setOwnsAnyTarget] = useState<boolean | null>(null);
   const [selectedSkin, setSelectedSkin] = useState<SkinCard | null>(null);
   const [showFirefoxHint, setShowFirefoxHint] = useState(false);
@@ -324,6 +341,7 @@ export const App: React.FC = () => {
   const [marketPage, setMarketPage] = useState(1);
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [marketCurrency, setMarketCurrency] = useState<MarketCurrency>("USD");
+  const [marketSource, setMarketSource] = useState<MarketSource>("all");
   const marketSectionRef = useRef<HTMLElement | null>(null);
   const [inventoryPage, setInventoryPage] = useState(1);
   const inventorySectionRef = useRef<HTMLElement | null>(null);
@@ -337,10 +355,21 @@ export const App: React.FC = () => {
     try {
       setLoadingUser(true);
       setError(null);
-      const resp = await apiClient.get<{ user: SteamUser }>("/api/auth/me");
-      setUser(resp.data.user);
-    } catch {
+      const resp = await apiClient.get<{ user: SteamUser }>("/api/auth/me", {
+        validateStatus: (status) => status === 200 || status === 401,
+      });
+      if (resp.status === 401) {
+        setUser(null);
+      } else {
+        setUser(resp.data.user);
+      }
+    } catch (e: any) {
       setUser(null);
+      const msg =
+        e?.code === "ECONNABORTED"
+          ? t.errorConnection
+          : e?.response?.data?.error ?? e?.message;
+      if (msg) setError(msg);
     } finally {
       setLoadingUser(false);
     }
@@ -365,6 +394,7 @@ export const App: React.FC = () => {
   const fetchInventories = async () => {
     if (!user) return;
     try {
+      setLoadingInventories(true);
       const resp = await apiClient.get<{
         inventories: Record<string, GameInventory>;
         ownsAnyTarget: boolean;
@@ -377,6 +407,8 @@ export const App: React.FC = () => {
       setOwnsAnyTarget(resp.data.ownsAnyTarget);
     } catch {
       // keep silent; skins are an enhancement over core games list
+    } finally {
+      setLoadingInventories(false);
     }
   };
 
@@ -517,6 +549,7 @@ export const App: React.FC = () => {
           params: {
             gameId: game.appid,
             currency: marketCurrency,
+            source: marketSource,
             limit: MARKET_PAGE_SIZE,
             offset,
           },
@@ -581,6 +614,7 @@ export const App: React.FC = () => {
     selectedGameForMarket?.appid,
     dashboardTab,
     marketCurrency,
+    marketSource,
   ]);
 
   useEffect(() => {
@@ -616,20 +650,20 @@ export const App: React.FC = () => {
                 <span className="pill-small">{t.homeBullet2}</span>
                 <span className="pill-small">{t.homeBullet3}</span>
               </div> */}
-              <div className="button-row">
-                {loadingUser ? (
-                  <span className="button-primary" style={{ opacity: 0.8 }}>
+              <div className="button-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.5rem" }}>
+                <a
+                  href={`${API_BASE_URL}/api/auth/steam/start`}
+                  className="button-primary"
+                  style={{ textDecoration: "none", color: "inherit" }}
+                  target="_self"
+                  rel="noopener noreferrer"
+                >
+                  {t.loginWithSteam}
+                </a>
+                {loadingUser && (
+                  <span className="status-text" style={{ fontSize: "0.85rem" }}>
                     {t.loginChecking}
                   </span>
-                ) : (
-                  <a
-                    className="button-primary"
-                    href={`${API_BASE_URL}/api/auth/steam/start`}
-                    target="_self"
-                    rel="noopener noreferrer"
-                  >
-                    {t.loginWithSteam}
-                  </a>
                 )}
               </div>
               {error && (
@@ -780,7 +814,7 @@ export const App: React.FC = () => {
 
       {selectedGameForMarket && (
         <section
-          className="app-column"
+          className={`app-column${selectedGameForSkins ? " section-with-inventory" : ""}`}
           style={{ gridColumn: "1 / -1" }}
           ref={marketSectionRef}
         >
@@ -796,7 +830,7 @@ export const App: React.FC = () => {
                 <div
                   className="view-switcher"
                   style={{
-                    marginBottom: "0.75rem",
+                    marginBottom: "0.5rem",
                     justifyContent: "flex-start",
                   }}
                 >
@@ -813,6 +847,30 @@ export const App: React.FC = () => {
                           : c === "EUR"
                             ? t.currencyEur
                             : t.currencyPln}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className="view-switcher"
+                  style={{
+                    marginBottom: "0.75rem",
+                    justifyContent: "flex-start",
+                  }}
+                >
+                  {(["all", "skinport", "dmarket"] as const).map((src) => (
+                    <button
+                      key={src}
+                      type="button"
+                      className={`view-switcher-toggle${marketSource === src ? " view-switcher-toggle--active" : ""}`}
+                      onClick={() => setMarketSource(src)}
+                    >
+                      <span className="view-switcher-label">
+                        {src === "all"
+                          ? t.marketSourceAll
+                          : src === "skinport"
+                            ? t.marketSourceSkinport
+                            : t.marketSourceDmarket}
                       </span>
                     </button>
                   ))}
@@ -853,6 +911,10 @@ export const App: React.FC = () => {
                                 style={{
                                   marginTop: "0.2rem",
                                   fontSize: "0.75rem",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "0.35rem",
+                                  flexWrap: "wrap",
                                 }}
                               >
                                 {item.suggestedPrice != null
@@ -873,6 +935,19 @@ export const App: React.FC = () => {
                                           : "?"
                                       }`
                                     : "—"}
+                                {marketSource === "all" && item.source && (
+                                  <span
+                                    style={{
+                                      fontSize: "0.65rem",
+                                      opacity: 0.85,
+                                      textTransform: "uppercase",
+                                    }}
+                                  >
+                                    {item.source === "dmarket"
+                                      ? "DMarket"
+                                      : "SkinPort"}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1057,6 +1132,11 @@ export const App: React.FC = () => {
                     </div>
                   </div>
                   <div className="card-body">
+                    {loadingInventories && !inventories[selectedGameForSkins.appid] && (
+                      <p className="status-text" style={{ marginBottom: "0.75rem" }}>
+                        {t.inventoryLoading}
+                      </p>
+                    )}
                     <div className="gallery-view" key={viewMode}>
                       {viewMode === "2D" ? (
                         <div className="skin-grid-2d">
