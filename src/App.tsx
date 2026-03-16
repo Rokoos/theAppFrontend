@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiClient } from "./api";
 import { WebGLCanvas, SkinCard } from "./components/WebGLCanvas";
 import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from "./utils/skins";
+import { PriceHistoryChart } from "./components/PriceHistoryChart";
 
 type Locale = "en" | "pl";
 
@@ -346,6 +347,14 @@ export const App: React.FC = () => {
   const [inventoryPage, setInventoryPage] = useState(1);
   const inventorySectionRef = useRef<HTMLElement | null>(null);
   const inventoryScrollRunRef = useRef(0);
+  const [historyRangeDays, setHistoryRangeDays] = useState<7 | 30 | 90>(7);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPoints, setHistoryPoints] = useState<
+    { time: string; median: number }[]
+  >([]);
+  const [historyWarning, setHistoryWarning] = useState<
+    "unsupported-game" | "no-points" | "error" | null
+  >(null);
 
   const t = TEXT[locale];
 
@@ -594,8 +603,9 @@ export const App: React.FC = () => {
       };
       if (!selectedGameForSkins) setSelectedGameForSkins(defaultGame);
       if (!selectedGameForMarket) {
+        // Initialize the default market game; actual fetching is handled
+        // by the effect that watches selectedGameForMarket and filters.
         setSelectedGameForMarket(defaultGame);
-        void fetchMarketPrices(1, defaultGame);
       }
     }
   }, [user, dashboardTab]);
@@ -631,6 +641,53 @@ export const App: React.FC = () => {
     const targetTop = Math.max(window.scrollY + rect.top - headerOffset, 0);
     window.scrollTo({ top: targetTop, behavior: "smooth" });
   }, [inventoryPage]);
+
+  // Load SkinPort price history for the current skin in the modal (market source only).
+  useEffect(() => {
+    if (!skinModal || skinModal.source !== "market") {
+      setHistoryPoints([]);
+      setHistoryWarning(null);
+      setHistoryLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        setHistoryLoading(true);
+        setHistoryWarning(null);
+        setHistoryPoints([]);
+        const resp = await apiClient.get<{
+          points: { time: string; median: number }[];
+          warning?: "unsupported-game" | "no-points" | "error" | null;
+        }>("/api/market/history", {
+          params: {
+            gameId: skinModal.gameId,
+            marketHashName: skinModal.item.marketHashName,
+            days: historyRangeDays,
+          },
+          signal: controller.signal,
+        });
+        setHistoryPoints(resp.data.points || []);
+        setHistoryWarning(
+          (resp.data.warning as
+            | "unsupported-game"
+            | "no-points"
+            | "error"
+            | null) || null,
+        );
+      } catch (e: any) {
+        if (controller.signal.aborted) return;
+        setHistoryPoints([]);
+        setHistoryWarning("error");
+      } finally {
+        if (!controller.signal.aborted) {
+          setHistoryLoading(false);
+        }
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [skinModal, historyRangeDays]);
 
   const renderLoggedOut = () => (
     <main className="app-grid">
@@ -814,7 +871,7 @@ export const App: React.FC = () => {
 
       {selectedGameForMarket && (
         <section
-          className={`app-column${selectedGameForSkins ? " section-with-inventory" : ""}`}
+          className="app-column"
           style={{ gridColumn: "1 / -1" }}
           ref={marketSectionRef}
         >
@@ -1030,17 +1087,19 @@ export const App: React.FC = () => {
                               flexWrap: "wrap",
                             }}
                           >
-                            <button
-                              type="button"
-                              className="button-secondary"
-                              disabled={loadingMarket || marketPage <= 1}
-                              onClick={() => {
-                                const p = marketPage - 1;
-                                if (p >= 1) void fetchMarketPrices(p);
-                              }}
-                            >
-                              {t.prevPage}
-                            </button>
+                            {marketPage > 1 && (
+                              <button
+                                type="button"
+                                className="button-secondary"
+                                disabled={loadingMarket}
+                                onClick={() => {
+                                  const p = marketPage - 1;
+                                  if (p >= 1) void fetchMarketPrices(p);
+                                }}
+                              >
+                                {t.prevPage}
+                              </button>
+                            )}
                             {showPages.map((p, i) =>
                               p === "…" ? (
                                 <span
@@ -1066,19 +1125,20 @@ export const App: React.FC = () => {
                                 </button>
                               ),
                             )}
-                            <button
-                              type="button"
-                              className="button-secondary"
-                              disabled={
-                                loadingMarket || marketPage >= totalPages
-                              }
-                              onClick={() => {
-                                const p = marketPage + 1;
-                                if (p <= totalPages) void fetchMarketPrices(p);
-                              }}
-                            >
-                              {t.nextPage}
-                            </button>
+                            {marketPage < totalPages && (
+                              <button
+                                type="button"
+                                className="button-secondary"
+                                disabled={loadingMarket}
+                                onClick={() => {
+                                  const p = marketPage + 1;
+                                  if (p <= totalPages)
+                                    void fetchMarketPrices(p);
+                                }}
+                              >
+                                {t.nextPage}
+                              </button>
+                            )}
                           </div>
                         );
                       })()}
@@ -1577,6 +1637,73 @@ export const App: React.FC = () => {
                       ]}
                       maxCards={1}
                     />
+                  </div>
+                )}
+
+                {skinModal?.source === "market" && (
+                  <div style={{ marginTop: "0.75rem" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "0.5rem",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <span className="status-text">
+                        {t.marketPrices} – history
+                      </span>
+                      <div
+                        className="view-switcher"
+                        style={{
+                          padding: "0.15rem 0.2rem",
+                          gap: "0.15rem",
+                        }}
+                      >
+                        {[7, 30, 90].map((d) => (
+                          <button
+                            key={d}
+                            type="button"
+                            className={`view-switcher-toggle${
+                              historyRangeDays === d
+                                ? " view-switcher-toggle--active"
+                                : ""
+                            }`}
+                            style={{ padding: "0.1rem 0.55rem" }}
+                            onClick={() => setHistoryRangeDays(d as 7 | 30 | 90)}
+                          >
+                            <span className="view-switcher-label">
+                              {d}D
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {historyLoading && (
+                      <p className="status-text">
+                        {t.marketLoading}
+                      </p>
+                    )}
+                    {!historyLoading &&
+                      historyWarning === "unsupported-game" && (
+                        <p className="status-text">
+                          No historical data available.
+                        </p>
+                      )}
+                    {!historyLoading &&
+                      historyWarning !== "unsupported-game" &&
+                      !historyPoints.length && (
+                        <p className="status-text">
+                          No historical data available.
+                        </p>
+                      )}
+                    {!historyLoading && historyPoints.length > 0 && (
+                      <PriceHistoryChart
+                        points={historyPoints}
+                        days={historyRangeDays}
+                      />
+                    )}
                   </div>
                 )}
 
