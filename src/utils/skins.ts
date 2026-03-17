@@ -1,5 +1,3 @@
-const PLACEHOLDER_SKIN_IMAGE = "/assets/test-skin.png";
-
 /**
  * Build a SteamApis image URL for a skin (by market_hash_name).
  *
@@ -30,7 +28,7 @@ export function getSkinImage(
 
   const trimmed = (marketHashName || "").trim();
   if (!trimmed) {
-    return PLACEHOLDER_SKIN_IMAGE;
+    return "";
   }
 
   const encodedName = encodeURIComponent(trimmed);
@@ -38,6 +36,4 @@ export function getSkinImage(
   // SteamApis: redirects to the actual Steam CDN image for this item.
   return `https://api.steamapis.com/image/item/${appId}/${encodedName}`;
 }
-
-export { PLACEHOLDER_SKIN_IMAGE };
 

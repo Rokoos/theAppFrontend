@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { API_BASE_URL, apiClient } from "./api";
 import { WebGLCanvas, SkinCard } from "./components/WebGLCanvas";
-import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from "./utils/skins";
+import { getSkinImage } from "./utils/skins";
 import { PriceHistoryChart } from "./components/PriceHistoryChart";
 
 type Locale = "en" | "pl";
@@ -939,107 +939,107 @@ export const App: React.FC = () => {
                 ) : (
                   <>
                     <div className="skin-grid-2d">
-                      {marketItems.map((item, idx) => (
-                        <div
-                          key={`${item.marketHashName}-${idx}`}
-                          style={{ position: "relative" }}
-                          onClick={() => openSkinModalFromMarket(item)}
-                        >
-                          <div className="skin-card-2d">
-                            <div className="skin-card-2d-image-wrap">
-                              <img
-                                src={getSkinImage(item.marketHashName, {
-                                  appId: selectedGameForMarket.appid,
-                                })}
-                                onError={(e) => {
-                                  e.currentTarget.onerror = null;
-                                  e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
-                                }}
-                                alt={item.marketHashName}
-                                className="skin-card-2d-image"
-                              />
-                            </div>
-                            <div className="skin-card-2d-footer">
-                              <div className="skin-card-2d-name">
-                                {item.marketHashName}
-                              </div>
-                              <div
-                                className="status-text"
-                                style={{
-                                  marginTop: "0.2rem",
-                                  fontSize: "0.75rem",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "0.35rem",
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                {item.suggestedPrice != null
-                                  ? formatPrice(
-                                      item.suggestedPrice,
-                                      marketCurrency,
-                                    )
-                                  : item.minPrice != null
-                                    ? `${formatPrice(
-                                        item.minPrice,
-                                        marketCurrency,
-                                      )} – ${
-                                        item.maxPrice != null
-                                          ? formatPrice(
-                                              item.maxPrice,
-                                              marketCurrency,
-                                            )
-                                          : "?"
-                                      }`
-                                    : "—"}
-                                {marketSource === "all" && item.source && (
-                                  <span
-                                    style={{
-                                      fontSize: "0.65rem",
-                                      opacity: 0.85,
-                                      textTransform: "uppercase",
-                                    }}
-                                  >
-                                    {item.source === "dmarket"
-                                      ? "DMarket"
-                                      : "SkinPort"}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            aria-label={t.addAlert}
-                            onClick={openAlertModal(
-                              {
-                                name: item.marketHashName,
-                                description: "",
-                                iconUrl: "/assets/test-skin.png",
-                              },
-                              selectedGameForMarket.appid,
-                            )}
-                            style={{
-                              position: "absolute",
-                              top: "0.35rem",
-                              right: "0.35rem",
-                              width: "28px",
-                              height: "28px",
-                              borderRadius: "50%",
-                              border: "1px solid var(--border-subtle)",
-                              background: "rgba(15,23,42,0.9)",
-                              color: "var(--text-primary)",
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: "0.9rem",
-                            }}
+                      {marketItems.map((item, idx) => {
+                        const imgSrc = getSkinImage(item.marketHashName, {
+                          appId: selectedGameForMarket.appid,
+                        });
+                        if (!imgSrc) return null; // skip items without an image
+                        return (
+                          <div
+                            key={`${item.marketHashName}-${idx}`}
+                            style={{ position: "relative" }}
+                            onClick={() => openSkinModalFromMarket(item)}
                           >
-                            🔔
-                          </button>
-                        </div>
-                      ))}
+                            <div className="skin-card-2d">
+                              <div className="skin-card-2d-image-wrap">
+                                <img
+                                  src={imgSrc}
+                                  alt={item.marketHashName}
+                                  className="skin-card-2d-image"
+                                />
+                              </div>
+                              <div className="skin-card-2d-footer">
+                                <div className="skin-card-2d-name">
+                                  {item.marketHashName}
+                                </div>
+                                <div
+                                  className="status-text"
+                                  style={{
+                                    marginTop: "0.2rem",
+                                    fontSize: "0.75rem",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "0.35rem",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  {item.suggestedPrice != null
+                                    ? formatPrice(
+                                        item.suggestedPrice,
+                                        marketCurrency,
+                                      )
+                                    : item.minPrice != null
+                                      ? `${formatPrice(
+                                          item.minPrice,
+                                          marketCurrency,
+                                        )} – ${
+                                          item.maxPrice != null
+                                            ? formatPrice(
+                                                item.maxPrice,
+                                                marketCurrency,
+                                              )
+                                            : "?"
+                                        }`
+                                      : "—"}
+                                  {marketSource === "all" && item.source && (
+                                    <span
+                                      style={{
+                                        fontSize: "0.65rem",
+                                        opacity: 0.85,
+                                        textTransform: "uppercase",
+                                      }}
+                                    >
+                                      {item.source === "dmarket"
+                                        ? "DMarket"
+                                        : "SkinPort"}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              aria-label={t.addAlert}
+                              onClick={openAlertModal(
+                                {
+                                  name: item.marketHashName,
+                                  description: "",
+                                  iconUrl: "",
+                                },
+                                selectedGameForMarket.appid,
+                              )}
+                              style={{
+                                position: "absolute",
+                                top: "0.35rem",
+                                right: "0.35rem",
+                                width: "28px",
+                                height: "28px",
+                                borderRadius: "50%",
+                                border: "1px solid var(--border-subtle)",
+                                background: "rgba(15,23,42,0.9)",
+                                color: "var(--text-primary)",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "0.9rem",
+                              }}
+                            >
+                              🔔
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                     {marketTotal > 0 &&
                       (() => {
@@ -1197,6 +1197,19 @@ export const App: React.FC = () => {
                         {t.inventoryLoading}
                       </p>
                     )}
+                    {!loadingInventories &&
+                      inventories[selectedGameForSkins.appid] &&
+                      !(inventories[selectedGameForSkins.appid]?.items ?? []).some((item) => {
+                        const desc = item.description || "";
+                        const isMockItem =
+                          (item as any).isMock ||
+                          /no live Steam data/i.test(desc);
+                        return !isMockItem;
+                      }) && (
+                        <p className="status-text" style={{ marginBottom: "0.75rem" }}>
+                          No skins found for this game yet.
+                        </p>
+                      )}
                     <div className="gallery-view" key={viewMode}>
                       {viewMode === "2D" ? (
                         <div className="skin-grid-2d">
@@ -1213,16 +1226,7 @@ export const App: React.FC = () => {
                             });
                             const base = realBase.length ? realBase : [];
                             if (!base.length) {
-                              const maxCards = 8;
-                              const cards: SkinCard[] = [];
-                              for (let i = 0; i < maxCards; i += 1) {
-                                cards.push({
-                                  name: `Skin #${i + 1}`,
-                                  description: "",
-                                  iconUrl: PLACEHOLDER_SKIN_IMAGE,
-                                });
-                              }
-                              return cards;
+                              return [];
                             }
                             const start =
                               (inventoryPage - 1) * INVENTORY_PAGE_SIZE;
@@ -1265,11 +1269,6 @@ export const App: React.FC = () => {
                                         appId: selectedGameForSkins.appid,
                                         iconUrl: skin.iconUrl,
                                       })}
-                                      onError={(e) => {
-                                        e.currentTarget.onerror = null;
-                                        e.currentTarget.src =
-                                          PLACEHOLDER_SKIN_IMAGE;
-                                      }}
                                       alt={displayName}
                                       className="skin-card-2d-image"
                                     />
@@ -1303,16 +1302,7 @@ export const App: React.FC = () => {
                               });
                               const base = realBase.length ? realBase : [];
                               if (!base.length) {
-                                const maxCards = 8;
-                                const cards: SkinCard[] = [];
-                                for (let i = 0; i < maxCards; i += 1) {
-                                  cards.push({
-                                    name: `Skin #${i + 1}`,
-                                    description: "",
-                                    iconUrl: PLACEHOLDER_SKIN_IMAGE,
-                                  });
-                                }
-                                return cards;
+                                return [];
                               }
                               const start =
                                 (inventoryPage - 1) * INVENTORY_PAGE_SIZE;
@@ -1603,10 +1593,6 @@ export const App: React.FC = () => {
                                   : undefined,
                             },
                           )}
-                          onError={(e) => {
-                            e.currentTarget.onerror = null;
-                            e.currentTarget.src = PLACEHOLDER_SKIN_IMAGE;
-                          }}
                           alt={
                             skinModal.source === "market"
                               ? skinModal.item.marketHashName

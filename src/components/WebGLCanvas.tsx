@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { mockEncrypt, mockDecrypt } from '../utils/mockCrypto';
-import { getSkinImage, PLACEHOLDER_SKIN_IMAGE } from '../utils/skins';
+import { getSkinImage } from '../utils/skins';
 import { API_BASE_URL } from '../api';
 
 const MAX_TEXTURE_SIZE = 2048;
@@ -69,16 +69,7 @@ export function applySkinMaterialToGltf(
   });
 }
 
-const TEST_INVENTORY: SkinCard[] = [
-  { name: 'Skin #1', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'CS2' },
-  { name: 'Skin #2', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'CS2' },
-  { name: 'Skin #3', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'Rust' },
-  { name: 'Skin #4', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'Rust' },
-  { name: 'Skin #5', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'Dota 2' },
-  { name: 'Skin #6', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'Dota 2' },
-  { name: 'Skin #7', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'TF2' },
-  { name: 'Skin #8', description: 'Mock skin', iconUrl: '/assets/test-skin.png', gameLabel: 'TF2' }
-];
+const TEST_INVENTORY: SkinCard[] = [];
 
 type Props = {
   skins?: SkinCard[];
@@ -445,7 +436,6 @@ export const WebGLCanvas: React.FC<Props> = ({ skins = [], onSkinSelect, maxCard
                 return;
               }
               if (isFallback) return;
-              loadWithFallback(PLACEHOLDER_SKIN_IMAGE, true);
             },
           );
         };
